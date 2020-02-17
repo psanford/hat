@@ -11,13 +11,17 @@ import (
 type editor struct {
 	termios *unix.Termios
 	orig    unix.Termios
-	fd      int
+
+	f   *os.File
+	fd  int
+	err error
 }
 
 func main() {
 	ed := new(editor)
 
-	ed.fd = int(os.Stdin.Fd())
+	ed.f = os.Stdin
+	ed.fd = int(ed.f.Fd())
 	termios, err := unix.IoctlGetTermios(ed.fd, ioctlReadTermios)
 	if err != nil {
 		panic(err)
@@ -37,20 +41,48 @@ func main() {
 	fmt.Printf("pos: col=%d row=%d\r\n", col, row)
 
 	for {
-		b := make([]byte, 1)
-		_, err := os.Stdin.Read(b)
+		c, err := ed.readChar()
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			panic(err)
 		}
-		fmt.Printf("got: <%c> <%d>\r\n", b[0], b[0])
 
-		if b[0] == ctrlKey('q') {
+		if c == '\x1b' {
+			// escape seq
+
+			c1, _ := ed.readChar()
+			c2, err := ed.readChar()
+			if err != nil {
+				panic(err)
+			}
+
+			if c1 == '[' {
+				switch c2 {
+				case 'A':
+					fmt.Printf("UP\r\n")
+				case 'B':
+					fmt.Printf("DOWN\r\n")
+				case 'C':
+					fmt.Printf("RIGHT\r\n")
+				case 'D':
+					fmt.Printf("LEFT\r\n")
+				}
+			}
+		} else if c == '\r' {
+			if _, err := os.Stdout.Write([]byte("\r\n")); err != nil {
+				panic(err)
+			}
+		} else {
+			_, err = os.Stdout.Write([]byte{c})
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		if c == ctrlKey('q') || c == ctrlKey('c') {
 			break
 		}
-		col, row := ed.cursorPos()
-		fmt.Printf("pos: col=%d row=%d\r\n", col, row)
 	}
 }
 
@@ -65,6 +97,18 @@ func (ed *editor) cursorPos() (col, row int) {
 	}
 
 	return
+}
+
+func (ed *editor) readChar() (byte, error) {
+	if ed.err != nil {
+		return 0, ed.err
+	}
+	b := make([]byte, 1)
+	_, err := ed.f.Read(b)
+	if err != nil {
+		ed.err = err
+	}
+	return b[0], err
 }
 
 func (ed *editor) termSize() (cols, rows int) {
