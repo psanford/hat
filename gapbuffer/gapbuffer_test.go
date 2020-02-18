@@ -117,7 +117,54 @@ func TestGapbuffer(t *testing.T) {
 			t.Errorf("%s: got b=%s expected %s", tcInfo, sb, tc.expect)
 		}
 	}
+}
 
+func TestGetLine(t *testing.T) {
+	buf := New(50)
+
+	buf.Insert([]byte("Maurice-sibyl\nEarnhardt-oarsman\ninfectiousness-chairman\ndebilitates-stalking"))
+	buf.Seek(0, io.SeekStart)
+
+	readLine := func() string {
+		start, end := buf.GetLine(0)
+
+		got := make([]byte, end-start+1)
+		n, err := buf.ReadAt(got, int64(start))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != len(got) {
+			t.Fatalf("Failed to read full buffer size %d != %d", n, len(got))
+		}
+		return string(got)
+	}
+
+	got := readLine()
+
+	expect := "Maurice-sibyl\n"
+	if got != expect {
+		t.Fatalf("got %s expect %s", got, expect)
+	}
+	buf.Seek(int64(len(expect)-1), io.SeekStart)
+
+	got = readLine()
+	if string(got) != expect {
+		t.Fatalf("got %s expect %s", got, expect)
+	}
+
+	buf.Seek(1, io.SeekCurrent)
+	got = readLine()
+	expect = "Earnhardt-oarsman\n"
+	if string(got) != expect {
+		t.Fatalf("got %s expect %s", got, expect)
+	}
+
+	buf.Seek(0, io.SeekEnd)
+	got = readLine()
+	expect = "debilitates-stalking"
+	if string(got) != expect {
+		t.Fatalf("got %s expect %s", got, expect)
+	}
 }
 
 type debugInfo struct {
@@ -125,6 +172,10 @@ type debugInfo struct {
 	Back    []byte
 	Cap     int
 	GapSize int
+}
+
+func (i debugInfo) String() string {
+	return fmt.Sprintf("front:%q back:%q cap:%d gapSize:%d", i.Front, i.Back, i.Cap, i.GapSize)
 }
 
 func (b *GapBuffer) debugInfo() debugInfo {

@@ -103,6 +103,93 @@ func (b *GapBuffer) ReadAt(p []byte, off int64) (int, error) {
 	}
 }
 
+// searchFor searches forward for the first occurrence of c
+// starting at fromOffset (inclusive).
+func (b *GapBuffer) searchFor(c byte, fromOffset int) int {
+	buf := make([]byte, 1)
+
+	for i := int64(fromOffset); i < b.frontSize+b.backSize; i++ {
+		b.ReadAt(buf, int64(i))
+		if buf[0] == c {
+			return int(i)
+		}
+	}
+
+	return -1
+}
+
+// searchBackFor searches backwards for the first occurrence of c
+// starting at fromOffset-1.
+func (b *GapBuffer) searchBackFor(c byte, fromOffset int) int {
+	buf := make([]byte, 1)
+
+	for i := fromOffset - 1; i >= 0; i-- {
+		b.ReadAt(buf, int64(i))
+		if buf[0] == c {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// GetLine returns the start and end of the nth line relative to the current position.
+func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
+	pos := b.frontSize
+
+	if offset == 0 {
+		start := b.searchBackFor('\n', int(pos)) + 1
+		end := b.searchFor('\n', int(pos))
+
+		if end == -1 {
+			end = int(b.frontSize + b.backSize - 1)
+		}
+		return start, end
+	} else if offset < 0 {
+		newLineCount := 0 - offset
+		newLineCount++
+
+		cur := int(pos)
+
+		end := b.searchFor('\n', cur)
+		if end == -1 {
+			end = int(b.frontSize + b.backSize - 1)
+		}
+
+		for i := 0; i < newLineCount; i++ {
+			nl := b.searchBackFor('\n', cur)
+			if nl == -1 {
+				return 0, end
+			} else {
+				cur = nl
+				end = cur
+			}
+		}
+
+		return cur, end
+	} else {
+		newLineCount := offset + 1
+		cur := int(pos)
+
+		start := b.searchBackFor('\n', cur)
+		if start == -1 {
+			start = 0
+		}
+
+		for i := 0; i < newLineCount; i++ {
+			nl := b.searchFor('\n', cur)
+			if nl == -1 {
+				return start, int(b.frontSize + b.backSize - 1)
+			} else {
+				cur = nl
+				start = cur
+			}
+		}
+
+		return start, cur
+	}
+}
+
 func (b *GapBuffer) grow(minExpansion int) {
 	newSize := len(b.buf)
 	for newSize < len(b.buf)+minExpansion {
@@ -125,7 +212,7 @@ func (b *GapBuffer) moveCursor(relative int64) {
 	if relative < 0 {
 		copy(b.buf[len(b.buf)-int(newBack):], b.buf[newFront:b.frontSize])
 	} else {
-		copy(b.buf[int(newFront):], b.buf[len(b.buf)-int(b.backSize):len(b.buf)-int(newBack)])
+		copy(b.buf[b.frontSize:], b.buf[len(b.buf)-int(b.backSize):len(b.buf)-int(newBack)])
 	}
 
 	b.frontSize = newFront
