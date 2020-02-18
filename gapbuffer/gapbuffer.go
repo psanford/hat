@@ -70,6 +70,39 @@ func (b *GapBuffer) Delete(n int) {
 	b.frontSize -= int64(n)
 }
 
+func (b *GapBuffer) ReadAt(p []byte, off int64) (int, error) {
+	tailAmt := 0
+	tailOffset := 0
+	var tailP []byte
+
+	if tailOffset > int(b.frontSize+b.backSize) {
+		return 0, io.EOF
+	}
+
+	if off < b.frontSize {
+		if off+int64(len(p)) < b.frontSize {
+			copy(p, b.buf[off:int(off)+len(p)])
+			return len(p), nil
+		} else {
+			n := copy(p, b.buf[off:b.frontSize])
+			tailAmt = len(p) - int(b.frontSize-off)
+			tailP = p[n:]
+		}
+	} else {
+		tailAmt = len(p)
+		tailOffset = int(off - b.frontSize)
+		tailP = p
+	}
+
+	n := copy(tailP, b.buf[len(b.buf)-int(b.backSize)+tailOffset:])
+	if tailAmt == n {
+		return len(p), nil
+	} else {
+		size := len(p) - tailAmt + n
+		return size, io.EOF
+	}
+}
+
 func (b *GapBuffer) grow(minExpansion int) {
 	newSize := len(b.buf)
 	for newSize < len(b.buf)+minExpansion {

@@ -1,6 +1,7 @@
 package gapbuffer
 
 import (
+	"fmt"
 	"io"
 	"testing"
 
@@ -17,12 +18,12 @@ func TestGapbuffer(t *testing.T) {
 	expect := debugInfo{
 		Front:   []byte("AB"),
 		Back:    []byte("CDE"),
-		GapSize: 5,
-		Cap:     10,
+		GapSize: 3,
+		Cap:     8,
 	}
 
-	// 0  1  2  3  4  5  6  7  8  9
-	// A  B  _  _  _  _  _  C  D  E
+	// 0  1  2  3  4  5  6  7
+	// A  B  _  _  _  C  D  E
 	if diff := cmp.Diff(got, expect); diff != "" {
 		t.Fatal(diff)
 	}
@@ -33,8 +34,8 @@ func TestGapbuffer(t *testing.T) {
 	expect = debugInfo{
 		Front:   []byte("AB12345678"),
 		Back:    []byte("CDE"),
-		GapSize: 7,
-		Cap:     20,
+		GapSize: 3,
+		Cap:     16,
 	}
 
 	if diff := cmp.Diff(got, expect); diff != "" {
@@ -47,12 +48,74 @@ func TestGapbuffer(t *testing.T) {
 	expect = debugInfo{
 		Front:   []byte("AB123456"),
 		Back:    []byte("CDE"),
-		GapSize: 9,
-		Cap:     20,
+		GapSize: 5,
+		Cap:     16,
 	}
 
 	if diff := cmp.Diff(got, expect); diff != "" {
 		t.Fatal(diff)
+	}
+
+	type testCase struct {
+		size   int
+		offset int
+		expect string
+		err    error
+	}
+
+	cases := []testCase{
+		{
+			size:   2,
+			offset: 0,
+			expect: "AB",
+			err:    nil,
+		},
+		{
+			size:   2,
+			offset: 7,
+			expect: "6C",
+			err:    nil,
+		},
+		{
+			size:   2,
+			offset: 9,
+			expect: "DE",
+			err:    nil,
+		},
+		{
+			size:   5,
+			offset: 8,
+			expect: "CDE",
+			err:    io.EOF,
+		},
+		{
+			size:   2,
+			offset: 10,
+			expect: "E",
+			err:    io.EOF,
+		},
+		{
+			size:   15,
+			offset: 0,
+			expect: "AB123456CDE",
+			err:    io.EOF,
+		},
+	}
+
+	for i, tc := range cases {
+		tcInfo := fmt.Sprintf("ReadAt (tc=%d size=%d offset=%d)", i, tc.size, tc.offset)
+		b := make([]byte, tc.size)
+		n, err := buf.ReadAt(b, int64(tc.offset))
+		if n != len(tc.expect) {
+			t.Errorf("%s: got n=%d expected %d", tcInfo, n, len(tc.expect))
+		}
+		if err != tc.err {
+			t.Errorf("%s: got err=%s expected %s", tcInfo, err, tc.err)
+		}
+		sb := string(b[:n])
+		if sb != tc.expect {
+			t.Errorf("%s: got b=%s expected %s", tcInfo, sb, tc.expect)
+		}
 	}
 
 }
