@@ -129,6 +129,23 @@ func main() {
 					}
 				}
 			}
+		} else if c == 0x7F {
+			// ASCII DEL (backspace)
+			ed.buf.Delete(1)
+
+			// goto beginning of row
+			os.Stdout.Write([]byte(moveTo(row, 1)))
+			// clear line
+			os.Stdout.Write([]byte(vt100ClearToEndOfLine))
+			// rewrite line
+			lineStart, lineEnd := ed.buf.GetLine(0)
+			lineBuf := make([]byte, lineEnd-lineStart+1)
+			ed.buf.ReadAt(lineBuf, int64(lineStart))
+			os.Stdout.Write(lineBuf)
+			// move cursor back to correct position
+			colOffset := int(bufPos) + -1 - lineStart
+			colOffset++ // inc b/c the terminal coords are 1 based
+			os.Stdout.Write([]byte(moveTo(row, colOffset)))
 		} else if c == '\r' {
 			ed.buf.Insert([]byte{'\n'})
 			if _, err := os.Stdout.Write([]byte("\r\n")); err != nil {
@@ -228,7 +245,7 @@ const (
 	vt100CursorRight = "\x1b[C"
 	vt100CursorLeft  = "\x1b[D"
 
-	vt100ClearToEndOfLine = "\x1bK"
+	vt100ClearToEndOfLine = "\x1b[K"
 
 	vt100GetCursorActivePos = "\x1b[6n" // device status report (arg=6)
 
