@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/psanford/hat/gapbuffer"
 	"golang.org/x/sys/unix"
 )
 
@@ -12,16 +13,20 @@ type editor struct {
 	termios *unix.Termios
 	orig    unix.Termios
 
+	buf *gapbuffer.GapBuffer
+
 	f   *os.File
 	fd  int
 	err error
 }
 
 func main() {
-	ed := new(editor)
+	ed := &editor{
+		f:   os.Stdin,
+		fd:  int(os.Stdin.Fd()),
+		buf: gapbuffer.New(2),
+	}
 
-	ed.f = os.Stdin
-	ed.fd = int(ed.f.Fd())
 	termios, err := unix.IoctlGetTermios(ed.fd, ioctlReadTermios)
 	if err != nil {
 		panic(err)
@@ -33,14 +38,19 @@ func main() {
 	ed.enableRawMode()
 	defer ed.restoreTerminal()
 
-	cols, rows := ed.termSize()
+	debug, _ := os.Create("/tmp/hat.debug")
 
-	fmt.Printf("cols: %d rows:%d\r\n", cols, rows)
-
-	col, row := ed.cursorPos()
-	fmt.Printf("pos: col=%d row=%d\r\n", col, row)
+	// cols, rows := ed.termSize()
+	// fmt.Printf("cols: %d rows:%d\r\n", cols, rows)
+	// row, col := ed.cursorPos()
+	// fmt.Printf("pos: col=%d row=%d\r\n", col, row)
 
 	for {
+		row, col := ed.cursorPos()
+		bufPos, _ := ed.buf.Seek(0, io.SeekCurrent)
+
+		fmt.Fprintf(debug, "row: %d, col: %d, bufPos: %d\n", row, col, bufPos)
+
 		c, err := ed.readChar()
 		if err == io.EOF {
 			break
@@ -50,7 +60,6 @@ func main() {
 
 		if c == '\x1b' {
 			// escape seq
-
 			c1, _ := ed.readChar()
 			c2, err := ed.readChar()
 			if err != nil {
@@ -60,38 +69,113 @@ func main() {
 			if c1 == '[' {
 				switch c2 {
 				case 'A':
-					fmt.Printf("UP\r\n")
+					// up
+					prevStart, prevEnd := ed.buf.GetLine(-1)
+					curStart, _ := ed.buf.GetLine(0)
+					if curStart == prevStart {
+						continue
+					}
+
+					offsetCurLine := int(bufPos) - curStart
+
+					rowWidth := prevEnd - prevStart
+					if col-1 > rowWidth {
+						os.Stdout.Write([]byte(moveTo(rowWidth, col-1)))
+						ed.buf.Seek(int64(prevEnd), io.SeekStart)
+					} else {
+						os.Stdout.Write([]byte(vt100CursorUp))
+						ed.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
+					}
+
 				case 'B':
-					fmt.Printf("DOWN\r\n")
+					// down
+					nextStart, nextEnd := ed.buf.GetLine(1)
+					fmt.Fprintf(debug, "<down>: nextStart:%d nextEnd:%d\n", nextStart, nextEnd)
+
+					curStart, _ := ed.buf.GetLine(0)
+					if nextStart == curStart {
+						continue
+					}
+
+					offsetCurLine := int(bufPos) - curStart
+
+					rowWidth := nextEnd - nextStart
+					if col-1 > rowWidth {
+						os.Stdout.Write([]byte(moveTo(rowWidth, col-1)))
+						ed.buf.Seek(int64(nextEnd), io.SeekStart)
+					} else {
+						os.Stdout.Write([]byte(vt100CursorDown))
+						ed.buf.Seek(int64(nextStart+offsetCurLine), io.SeekStart)
+					}
 				case 'C':
-					fmt.Printf("RIGHT\r\n")
+					// right
+					_, endPos := ed.buf.GetLine(0)
+					newPos, _ := ed.buf.Seek(1, io.SeekCurrent)
+					if newPos == bufPos {
+						// we're at the end of the buffer
+					} else {
+						if newPos <= int64(endPos) {
+							os.Stdout.Write([]byte(vt100CursorRight))
+						} else {
+							os.Stdout.Write([]byte(vt100CursorDown))
+							os.Stdout.Write([]byte{'\r'})
+						}
+					}
 				case 'D':
-					fmt.Printf("LEFT\r\n")
+					// left
+					if col > 1 {
+						ed.buf.Seek(-1, io.SeekCurrent)
+						os.Stdout.Write([]byte(vt100CursorLeft))
+					}
 				}
 			}
 		} else if c == '\r' {
+			ed.buf.Insert([]byte{'\n'})
 			if _, err := os.Stdout.Write([]byte("\r\n")); err != nil {
 				panic(err)
 			}
 		} else {
-			_, err = os.Stdout.Write([]byte{c})
-			if err != nil {
-				panic(err)
-			}
+			ed.buf.Insert([]byte{c})
+
+			// goto beginning of row
+			os.Stdout.Write([]byte(moveTo(row, 1)))
+			// clear line
+			os.Stdout.Write([]byte(vt100ClearToEndOfLine))
+			// rewrite line
+			lineStart, lineEnd := ed.buf.GetLine(0)
+			lineBuf := make([]byte, lineEnd-lineStart+1)
+			ed.buf.ReadAt(lineBuf, int64(lineStart))
+			os.Stdout.Write(lineBuf)
+			// move cursor back to correct position
+			colOffset := int(bufPos) + 1 - lineStart
+			colOffset++ // inc b/c the terminal coords are 1 based
+			os.Stdout.Write([]byte(moveTo(row, colOffset)))
 		}
 
 		if c == ctrlKey('q') || c == ctrlKey('c') {
 			break
 		}
 	}
+
+	f, err := os.Create("/tmp/hat.out")
+	if err != nil {
+		panic(err)
+	}
+	ed.buf.Seek(0, io.SeekStart)
+	_, err = io.Copy(f, ed.buf)
+	if err != nil {
+		panic(err)
+	}
+	f.Close()
+	fmt.Printf("wrote /tmp/hat.out\n")
 }
 
-func (ed *editor) cursorPos() (col, row int) {
+func (ed *editor) cursorPos() (row, col int) {
 	if _, err := os.Stdin.Write([]byte(vt100GetCursorActivePos)); err != nil {
 		panic(err)
 	}
 
-	_, err := fmt.Fscanf(os.Stdin, "\x1b[%d;%dR", &col, &row)
+	_, err := fmt.Fscanf(os.Stdin, "\x1b[%d;%dR", &row, &col)
 	if err != nil {
 		panic(err)
 	}
@@ -139,13 +223,26 @@ const (
 	vt100ClearBeforeCursor = "\x1b[1J"
 	vt100ClearEntireScreen = "\x1b[2J"
 
+	vt100CursorUp    = "\x1b[A"
+	vt100CursorDown  = "\x1b[B"
+	vt100CursorRight = "\x1b[C"
+	vt100CursorLeft  = "\x1b[D"
+
+	vt100ClearToEndOfLine = "\x1bK"
+
 	vt100GetCursorActivePos = "\x1b[6n" // device status report (arg=6)
+
+	vt100CursorPosition = "\x1b[%d;%dH"
 )
 
 func (ed *editor) restoreTerminal() {
 	if err := unix.IoctlSetTermios(ed.fd, ioctlWriteTermios, &ed.orig); err != nil {
 		panic(err)
 	}
+}
+
+func moveTo(line, col int) string {
+	return fmt.Sprintf(vt100CursorPosition, line, col)
 }
 
 func ctrlKey(c byte) byte {

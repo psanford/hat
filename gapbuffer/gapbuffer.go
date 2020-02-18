@@ -103,6 +103,12 @@ func (b *GapBuffer) ReadAt(p []byte, off int64) (int, error) {
 	}
 }
 
+func (b *GapBuffer) Read(p []byte) (int, error) {
+	n, err := b.ReadAt(p, b.frontSize)
+	b.Seek(int64(n), io.SeekCurrent)
+	return n, err
+}
+
 // searchFor searches forward for the first occurrence of c
 // starting at fromOffset (inclusive).
 func (b *GapBuffer) searchFor(c byte, fromOffset int) int {
