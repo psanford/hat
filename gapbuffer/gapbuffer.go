@@ -1,7 +1,16 @@
+// gapbuffer implements the basic gapbuffer datastructure.
 package gapbuffer
+
+// gapbuffer basics:
+// you have a front-segment, a back-segment and a gap inbetween
+// your cursor is always at the beginning of the gap, so you can insert text where ever that is
+// as you navigate your cursor around you copy data from one segment to the other depending on
+// if you navigate forwards or backwards. This is relatively effecient since its a single memcopy
+// for each move.
 
 import (
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -9,6 +18,9 @@ type GapBuffer struct {
 	buf       []byte
 	frontSize int64
 	backSize  int64
+
+	// XXX remove
+	Debug io.Writer
 }
 
 // New creates a new GapBuffer with an initial size.
@@ -26,6 +38,9 @@ func New(size int) *GapBuffer {
 
 func (b *GapBuffer) Seek(offset int64, whence int) (int64, error) {
 	var abs int64
+
+	totalSize := b.frontSize + b.backSize
+	b.debugPrintf("gb: seek: %d %d (totalSize: %d)\n", offset, whence, totalSize)
 
 	switch whence {
 	case io.SeekCurrent:
@@ -45,6 +60,8 @@ func (b *GapBuffer) Seek(offset int64, whence int) (int64, error) {
 	if abs > b.frontSize+b.backSize {
 		abs = b.frontSize + b.backSize
 	}
+
+	b.debugPrintf("gb: moveCursor: %d\n", abs-b.frontSize)
 
 	b.moveCursor(abs - b.frontSize)
 
@@ -125,7 +142,7 @@ func (b *GapBuffer) searchFor(c byte, fromOffset int) int {
 }
 
 // searchBackFor searches backwards for the first occurrence of c
-// starting at fromOffset-1.
+// starting at fromOffset-1. If no match is found returns -1.
 func (b *GapBuffer) searchBackFor(c byte, fromOffset int) int {
 	buf := make([]byte, 1)
 
@@ -140,8 +157,19 @@ func (b *GapBuffer) searchBackFor(c byte, fromOffset int) int {
 }
 
 // GetLine returns the start and end of the nth line relative to the current position.
+// endPos will be the pos of the new line character unless it is the final line
+// with no newline character.
+// If offset is out of bounds startPos and endPost will be -1
 func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
+	defer func() {
+		if startPos > endPos {
+			panic(fmt.Sprintf("startPos %d should not be greater than endPos %d", startPos, endPos))
+		}
+	}()
+
 	pos := b.frontSize
+
+	b.debugPrintf("gb: frontSize: %d\n", pos)
 
 	if offset == 0 {
 		start := b.searchBackFor('\n', int(pos)) + 1
@@ -149,14 +177,15 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 
 		if end == -1 {
 			end = int(b.frontSize + b.backSize - 1)
+			if start == end+1 {
+				end = start
+			}
 		}
 		return start, end
 	} else if offset < 0 {
 		newLineCount := 0 - offset
-		newLineCount++
 
 		cur := int(pos)
-
 		end := b.searchFor('\n', cur)
 		if end == -1 {
 			end = int(b.frontSize + b.backSize - 1)
@@ -165,30 +194,29 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 		for i := 0; i < newLineCount; i++ {
 			nl := b.searchBackFor('\n', cur)
 			if nl == -1 {
-				return 0, end
+				return -1, -1
 			} else {
-				cur = nl
 				end = cur
+				cur = nl
 			}
 		}
 
-		return cur, end
+		// search back one more to find the start of the current line
+		nl := b.searchBackFor('\n', cur)
+		return nl + 1, cur
 	} else {
 		newLineCount := offset + 1
 		cur := int(pos)
 
-		start := b.searchBackFor('\n', cur)
-		if start == -1 {
-			start = 0
-		}
+		start := b.searchBackFor('\n', cur+1) + 1
 
 		for i := 0; i < newLineCount; i++ {
-			nl := b.searchFor('\n', cur)
+			nl := b.searchFor('\n', cur+1)
 			if nl == -1 {
-				return start, int(b.frontSize + b.backSize - 1)
+				return -1, -1
 			} else {
+				start = cur + 1
 				cur = nl
-				start = cur
 			}
 		}
 
@@ -196,6 +224,7 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 	}
 }
 
+// grow the gap size by at least minExpansion
 func (b *GapBuffer) grow(minExpansion int) {
 	newSize := len(b.buf)
 	for newSize < len(b.buf)+minExpansion {
@@ -223,4 +252,42 @@ func (b *GapBuffer) moveCursor(relative int64) {
 
 	b.frontSize = newFront
 	b.backSize = newBack
+}
+
+type debugInfo struct {
+	Front   []byte
+	Back    []byte
+	Cap     int
+	GapSize int
+}
+
+func (i debugInfo) String() string {
+	return fmt.Sprintf("front:%q back:%q cap:%d gapSize:%d", i.Front, i.Back, i.Cap, i.GapSize)
+}
+
+func (i debugInfo) Bytes() []byte {
+	b := make([]byte, 0, len(i.Front)+len(i.Back))
+	b = append(b, i.Front...)
+	b = append(b, i.Back...)
+	return b
+}
+
+func (b *GapBuffer) debugInfo() debugInfo {
+	return debugInfo{
+		Front:   b.buf[:b.frontSize],
+		Back:    b.buf[len(b.buf)-int(b.backSize):],
+		Cap:     len(b.buf),
+		GapSize: len(b.buf) - int(b.frontSize) - int(b.backSize),
+	}
+}
+
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+func (b *GapBuffer) DebugInfo() debugInfo {
+	return b.debugInfo()
+}
+
+func (b *GapBuffer) debugPrintf(s string, args ...any) {
+	if b.Debug != nil {
+		fmt.Fprintf(b.Debug, s, args...)
+	}
 }
