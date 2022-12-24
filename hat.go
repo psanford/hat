@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 
+	"github.com/psanford/hat/ansiparser"
 	"github.com/psanford/hat/gapbuffer"
 	"golang.org/x/sys/unix"
 )
@@ -15,6 +17,8 @@ type editor struct {
 	orig    unix.Termios
 
 	buf *gapbuffer.GapBuffer
+
+	parser *ansiparser.Parser
 
 	debug              io.Writer
 	debugCurrentBuffer *os.File
@@ -51,6 +55,9 @@ func main() {
 	promptLine := prevRow - 1
 	lastInsertNewline := false
 
+	ed.parser = ansiparser.New(context.Background())
+	events := ed.parser.EventChan()
+
 MAIN_LOOP:
 	for {
 		row, col := ed.cursorPos()
@@ -82,27 +89,70 @@ MAIN_LOOP:
 
 		fmt.Fprintf(debug, "loop_start row: %d, col: %d, term:<%d, %d> bufPos: %d, bufLine:%d\n", row, col, termCols, termRows, bufPos, ed.getLineNumber())
 
-		c, err := ed.readChar()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			panic(err)
-		}
-		fmt.Fprintf(debug, "char: %x\n", c)
+		ed.readBytes()
 
-		if c == '\x1b' { // ESC
-			fmt.Fprintf(debug, "loop: is escape\n")
-			// escape seq
-			c1, _ := ed.readChar()
-			c2, err := ed.readChar()
-			if err != nil {
-				panic(err)
+		for {
+			var e ansiparser.Event
+			select {
+			case e = <-events:
+			default:
+				continue MAIN_LOOP
 			}
 
-			if c1 == '[' { // CSI (Control Sequence Introducer)
-				switch c2 {
-				case 'A':
-					// up
+			fmt.Fprintf(debug, "event: %T %v\n", e, e)
+
+			switch ee := e.(type) {
+			case ansiparser.Character:
+				c := ee.Char
+				if c == 0x7F { // ASCII DEL (backspace)
+					deleted := ed.buf.Delete(1)
+					if len(deleted) > 0 && deleted[0] == '\n' {
+						// we've deleted the previous newline. We need to redraw the previous lines and all following lines
+					}
+					// goto beginning of row
+					os.Stdout.Write(moveTo(row, 1))
+					// clear line
+					os.Stdout.Write([]byte(vt100ClearToEndOfLine))
+					// rewrite line
+					lineStart, lineEnd := ed.buf.GetLine(0)
+					lineBuf := make([]byte, lineEnd-lineStart+1)
+					ed.buf.ReadAt(lineBuf, int64(lineStart))
+					os.Stdout.Write(lineBuf)
+					// move cursor back to correct position
+					colOffset := int(bufPos) + -1 - lineStart
+					colOffset++ // inc b/c the terminal coords are 1 based
+					os.Stdout.Write(moveTo(row, colOffset))
+				} else if c == '\r' {
+					fmt.Fprintf(debug, "loop: is newline\n")
+					ed.buf.Insert([]byte{'\n'})
+					os.Stdout.Write([]byte("\r\n"))
+					lastInsertNewline = true
+				} else if c == ctrlC || c == ctrlD {
+					break MAIN_LOOP
+				} else if c == ctrlA { // ctrl-a
+				} else if c == ctrlE { // ctrl-e
+				} else {
+					fmt.Fprintf(debug, "loop: is plain char\n")
+					fmt.Fprintf(ed.debug, "write char %d %x %c\n", c, c, c)
+					ed.buf.Insert([]byte{c})
+
+					// goto beginning of row
+					os.Stdout.Write(moveTo(row, 1))
+					// clear line
+					os.Stdout.Write([]byte(vt100ClearToEndOfLine))
+					// rewrite line
+					lineStart, lineEnd := ed.buf.GetLine(0)
+					lineBuf := make([]byte, lineEnd-lineStart+1)
+					ed.buf.ReadAt(lineBuf, int64(lineStart))
+					os.Stdout.Write(lineBuf)
+					// move cursor back to correct position
+					colOffset := int(bufPos) + 1 - lineStart
+					colOffset++ // inc b/c the terminal coords are 1 based
+					os.Stdout.Write(moveTo(row, colOffset))
+				}
+			case ansiparser.CursorMovement:
+				switch ee.Direction {
+				case ansiparser.Up:
 					prevStart, prevEnd := ed.buf.GetLine(-1)
 					if prevStart == -1 && prevEnd == -1 {
 						// we're on the first line
@@ -123,9 +173,8 @@ MAIN_LOOP:
 					}
 
 					ed.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
-					os.Stdout.Write([]byte(moveTo(row-1, offsetCurLine+1)))
-				case 'B':
-					// down
+					os.Stdout.Write(moveTo(row-1, offsetCurLine+1))
+				case ansiparser.Down:
 					nextStart, nextEnd := ed.buf.GetLine(1)
 					if nextStart == -1 {
 						continue
@@ -143,9 +192,9 @@ MAIN_LOOP:
 					}
 
 					ed.buf.Seek(int64(nextStart+offsetCurLine), io.SeekStart)
-					os.Stdout.Write([]byte(moveTo(row+1, offsetCurLine+1)))
-				case 'C':
-					// right
+					os.Stdout.Write(moveTo(row+1, offsetCurLine+1))
+
+				case ansiparser.Forward:
 					_, endPos := ed.buf.GetLine(0)
 					newPos, _ := ed.buf.Seek(1, io.SeekCurrent)
 					if newPos == bufPos {
@@ -158,9 +207,7 @@ MAIN_LOOP:
 							os.Stdout.Write([]byte{'\r'})
 						}
 					}
-				case 'D':
-					// left
-
+				case ansiparser.Backward:
 					startLine, _ := ed.buf.GetLine(0)
 					if bufPos == 0 {
 						// we're at the beginning of the buffer
@@ -170,67 +217,23 @@ MAIN_LOOP:
 							newStartLine, newEndLine := ed.buf.GetLine(0)
 							fmt.Fprintf(ed.debug, "LEFT: go up 1 line: row=%d width: %d-%d+1\n", row-1, newEndLine, newStartLine)
 							fmt.Fprintf(ed.debug, "LEFT: go up (to: %d, %d)\n", row-1, newEndLine-newStartLine+1)
-							os.Stdout.Write([]byte(moveTo(row-1, newEndLine-newStartLine+1)))
+							os.Stdout.Write(moveTo(row-1, newEndLine-newStartLine+1))
 						} else {
 							fmt.Fprintf(ed.debug, "LEFT: just left 1 (to: %d, %d)\n", row, col-1)
-							os.Stdout.Write([]byte(moveTo(row, col-1)))
+							os.Stdout.Write(moveTo(row, col-1))
 						}
 					}
 				}
-			}
-		} else if c == 0x7F { // ASCII DEL (backspace)
-			deleted := ed.buf.Delete(1)
-			if len(deleted) > 0 && deleted[0] == '\n' {
-				// we've deleted the previous newline. We need to redraw the previous lines and all following lines
+			default:
+				fmt.Fprintf(debug, "unhandled event: %T %v\n", e, e)
 			}
 
-			// goto beginning of row
-			os.Stdout.Write([]byte(moveTo(row, 1)))
-			// clear line
-			os.Stdout.Write([]byte(vt100ClearToEndOfLine))
-			// rewrite line
-			lineStart, lineEnd := ed.buf.GetLine(0)
-			lineBuf := make([]byte, lineEnd-lineStart+1)
-			ed.buf.ReadAt(lineBuf, int64(lineStart))
-			os.Stdout.Write(lineBuf)
-			// move cursor back to correct position
-			colOffset := int(bufPos) + -1 - lineStart
-			colOffset++ // inc b/c the terminal coords are 1 based
-			os.Stdout.Write([]byte(moveTo(row, colOffset)))
-		} else if c == '\r' {
-			fmt.Fprintf(debug, "loop: is newline\n")
-			ed.buf.Insert([]byte{'\n'})
-			os.Stdout.Write([]byte("\r\n"))
-			lastInsertNewline = true
-		} else if c == ctrlC || c == ctrlD {
-			break MAIN_LOOP
-		} else if c == ctrlA { // ctrl-a
-		} else if c == ctrlE { // ctrl-e
-		} else {
-			fmt.Fprintf(debug, "loop: is plain char\n")
-			fmt.Fprintf(ed.debug, "write char %d %x %c\n", c, c, c)
-			ed.buf.Insert([]byte{c})
+			info := ed.buf.DebugInfo()
+			debufBuf, _ := os.Create("/tmp/hat.current.buffer")
+			ed.debugCurrentBuffer = debufBuf
 
-			// goto beginning of row
-			os.Stdout.Write([]byte(moveTo(row, 1)))
-			// clear line
-			os.Stdout.Write([]byte(vt100ClearToEndOfLine))
-			// rewrite line
-			lineStart, lineEnd := ed.buf.GetLine(0)
-			lineBuf := make([]byte, lineEnd-lineStart+1)
-			ed.buf.ReadAt(lineBuf, int64(lineStart))
-			os.Stdout.Write(lineBuf)
-			// move cursor back to correct position
-			colOffset := int(bufPos) + 1 - lineStart
-			colOffset++ // inc b/c the terminal coords are 1 based
-			os.Stdout.Write([]byte(moveTo(row, colOffset)))
+			ioutil.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
 		}
-
-		info := ed.buf.DebugInfo()
-		debufBuf, _ := os.Create("/tmp/hat.current.buffer")
-		ed.debugCurrentBuffer = debufBuf
-
-		ioutil.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
 	}
 
 	f, err := os.Create("/tmp/hat.out")
@@ -273,7 +276,31 @@ func (ed *editor) readChar() (byte, error) {
 	if err != nil {
 		ed.err = err
 	}
+
+	_, err = ed.parser.Write(b)
+	if err != nil {
+		panic(err)
+	}
+
 	return b[0], err
+}
+
+func (ed *editor) readBytes() (int, error) {
+	if ed.err != nil {
+		return 0, ed.err
+	}
+	b := make([]byte, 128)
+	n, err := ed.f.Read(b)
+	if err != nil {
+		ed.err = err
+	}
+
+	_, err = ed.parser.Write(b[:n])
+	if err != nil {
+		ed.err = err
+	}
+
+	return n, err
 }
 
 func (ed *editor) termSize() (cols, rows int) {
@@ -328,8 +355,8 @@ func (ed *editor) restoreTerminal() {
 	}
 }
 
-func moveTo(line, col int) string {
-	return fmt.Sprintf(vt100CursorPosition, line, col)
+func moveTo(line, col int) []byte {
+	return []byte(fmt.Sprintf(vt100CursorPosition, line, col))
 }
 
 func ctrlKey(c byte) byte {

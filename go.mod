@@ -3,6 +3,7 @@ module github.com/psanford/hat
 go 1.18
 
 require (
+	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1
 	github.com/google/go-cmp v0.4.0
-	golang.org/x/sys v0.0.0-20200212091648-12a6c2dcc1e4
+	golang.org/x/sys v0.0.0-20210616094352-59db8d763f22
 )
