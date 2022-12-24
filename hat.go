@@ -51,6 +51,7 @@ func main() {
 	promptLine := prevRow - 1
 	lastInsertNewline := false
 
+MAIN_LOOP:
 	for {
 		row, col := ed.cursorPos()
 		bufPos, _ := ed.buf.Seek(0, io.SeekCurrent)
@@ -87,8 +88,9 @@ func main() {
 		} else if err != nil {
 			panic(err)
 		}
+		fmt.Fprintf(debug, "char: %x\n", c)
 
-		if c == '\x1b' {
+		if c == '\x1b' { // ESC
 			fmt.Fprintf(debug, "loop: is escape\n")
 			// escape seq
 			c1, _ := ed.readChar()
@@ -97,7 +99,7 @@ func main() {
 				panic(err)
 			}
 
-			if c1 == '[' {
+			if c1 == '[' { // CSI (Control Sequence Introducer)
 				switch c2 {
 				case 'A':
 					// up
@@ -176,9 +178,7 @@ func main() {
 					}
 				}
 			}
-		} else if c == 0x7F {
-			// ASCII DEL (backspace)
-
+		} else if c == 0x7F { // ASCII DEL (backspace)
 			deleted := ed.buf.Delete(1)
 			if len(deleted) > 0 && deleted[0] == '\n' {
 				// we've deleted the previous newline. We need to redraw the previous lines and all following lines
@@ -200,10 +200,12 @@ func main() {
 		} else if c == '\r' {
 			fmt.Fprintf(debug, "loop: is newline\n")
 			ed.buf.Insert([]byte{'\n'})
-			if _, err := os.Stdout.Write([]byte("\r\n")); err != nil {
-				panic(err)
-			}
+			os.Stdout.Write([]byte("\r\n"))
 			lastInsertNewline = true
+		} else if c == ctrlC || c == ctrlD {
+			break MAIN_LOOP
+		} else if c == ctrlA { // ctrl-a
+		} else if c == ctrlE { // ctrl-e
 		} else {
 			fmt.Fprintf(debug, "loop: is plain char\n")
 			fmt.Fprintf(ed.debug, "write char %d %x %c\n", c, c, c)
@@ -224,16 +226,11 @@ func main() {
 			os.Stdout.Write([]byte(moveTo(row, colOffset)))
 		}
 
-		if c == ctrlKey('q') || c == ctrlKey('c') {
-			break
-		}
-
 		info := ed.buf.DebugInfo()
 		debufBuf, _ := os.Create("/tmp/hat.current.buffer")
 		ed.debugCurrentBuffer = debufBuf
 
 		ioutil.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
-		fmt.Fprintln(debug)
 	}
 
 	f, err := os.Create("/tmp/hat.out")
@@ -246,7 +243,6 @@ func main() {
 		panic(err)
 	}
 	f.Close()
-	fmt.Printf("wrote /tmp/hat.out\n")
 }
 
 // redrawVisible redraws the current editor viewport.
@@ -318,6 +314,12 @@ const (
 	vt100GetCursorActivePos = "\x1b[6n" // device status report (arg=6)
 
 	vt100CursorPosition = "\x1b[%d;%dH"
+
+	ctrlA = 0x01
+	ctrlB = 0x02
+	ctrlC = 0x03
+	ctrlD = 0x04
+	ctrlE = 0x05
 )
 
 func (ed *editor) restoreTerminal() {
