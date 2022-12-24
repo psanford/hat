@@ -79,12 +79,14 @@ func (b *GapBuffer) Insert(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (b *GapBuffer) Delete(n int) {
+func (b *GapBuffer) Delete(n int) []byte {
 	if n > int(b.frontSize) {
 		n = int(b.frontSize)
 	}
 
 	b.frontSize -= int64(n)
+	out := b.buf[b.frontSize : b.frontSize+int64(n)]
+	return out
 }
 
 func (b *GapBuffer) ReadAt(p []byte, off int64) (int, error) {
