@@ -227,6 +227,60 @@ func TestGetLine(t *testing.T) {
 	}
 }
 
+func TestGetLineABunchOfEmptyLines(t *testing.T) {
+	buf := New(2)
+
+	newLineCount := 4
+
+	// line zero starts at pos 0 and ends at pos 0
+	// line 1 starts at pos 1 and ends at pos 1
+	//   \n    \n    \n    \n
+	//  |     |     |     |
+	//  0....01....12....23
+	// line 0: [\n]
+	// line 1: [\n]
+	// line 2: [\n]
+	// line 3: [\n]
+	// is there a line 4??? can you have a line with no characters?
+	// is there always a final line with no characters?
+	// if the final character is a \n then there must be an empty line with no characters, i think?
+	// but we can't represent that right now with our current api
+
+	for i := 0; i < newLineCount; i++ {
+		buf.Insert([]byte("\n"))
+	}
+
+	buf.Seek(0, io.SeekStart)
+
+	for i := 0; i < newLineCount; i++ {
+		curStart, curEnd := buf.GetLine(0)
+		nextStart, nextEnd := buf.GetLine(1)
+
+		if curStart != i {
+			t.Fatalf("expected [%d] curStart to be %d but was %d", i, i, curStart)
+		}
+		if curEnd != i {
+			t.Fatalf("expected [%d] curEnd to be %d but was %d", i, i, curEnd)
+		}
+
+		if i < newLineCount-1 {
+			if nextStart != i+1 {
+				t.Fatalf("expected [%d] nextStart to be %d but was %d", i, i+1, nextStart)
+			}
+
+			if nextEnd != i+1 {
+				t.Fatalf("expected [%d] nextEnd to be %d but was %d", i, i+1, nextEnd)
+			}
+		} else {
+			if nextStart != -1 || nextEnd != -1 {
+				t.Fatalf("expected [%d] nextRow called on the last row should return -1 but returned %d/%d", i, nextStart, nextEnd)
+			}
+		}
+
+		buf.Seek(1, io.SeekCurrent)
+	}
+}
+
 func TestSeek(t *testing.T) {
 	buf := newCheckBuffer(2)
 

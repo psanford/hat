@@ -212,6 +212,12 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 
 		start := b.searchBackFor('\n', cur+1) + 1
 
+		if start == cur+1 {
+			// if we are starting on a new line that means we need to look for one less
+			// newline than normal
+			newLineCount--
+		}
+
 		for i := 0; i < newLineCount; i++ {
 			nl := b.searchFor('\n', cur+1)
 			if nl == -1 {
