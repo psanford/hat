@@ -185,6 +185,7 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 		}
 		return start, end
 	} else if offset < 0 {
+		// looking back
 		newLineCount := 0 - offset
 
 		cur := int(pos)
@@ -207,6 +208,7 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 		nl := b.searchBackFor('\n', cur)
 		return nl + 1, cur
 	} else {
+		// looking forward
 		newLineCount := offset + 1
 		cur := int(pos)
 
@@ -221,6 +223,10 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 		for i := 0; i < newLineCount; i++ {
 			nl := b.searchFor('\n', cur+1)
 			if nl == -1 {
+				if i == newLineCount-1 {
+					// we're on the last line and there's no newline
+					return cur + 1, b.Size()
+				}
 				return -1, -1
 			} else {
 				start = cur + 1
@@ -230,6 +236,10 @@ func (b *GapBuffer) GetLine(offset int) (startPos, endPos int) {
 
 		return start, cur
 	}
+}
+
+func (b *GapBuffer) Size() int {
+	return int(b.frontSize) + int(b.backSize)
 }
 
 // grow the gap size by at least minExpansion

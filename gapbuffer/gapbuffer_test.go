@@ -255,6 +255,7 @@ func TestGetLineABunchOfEmptyLines(t *testing.T) {
 	for i := 0; i < newLineCount; i++ {
 		curStart, curEnd := buf.GetLine(0)
 		nextStart, nextEnd := buf.GetLine(1)
+		prevStart, prevEnd := buf.GetLine(-1)
 
 		if curStart != i {
 			t.Fatalf("expected [%d] curStart to be %d but was %d", i, i, curStart)
@@ -263,13 +264,59 @@ func TestGetLineABunchOfEmptyLines(t *testing.T) {
 			t.Fatalf("expected [%d] curEnd to be %d but was %d", i, i, curEnd)
 		}
 
-		if i < newLineCount-1 {
-			if nextStart != i+1 {
-				t.Fatalf("expected [%d] nextStart to be %d but was %d", i, i+1, nextStart)
+		if nextStart != i+1 {
+			t.Fatalf("expected [%d] nextStart to be %d but was %d", i, i+1, nextStart)
+		}
+
+		if nextEnd != i+1 {
+			t.Fatalf("expected [%d] nextEnd to be %d but was %d", i, i+1, nextEnd)
+		}
+
+		if i > 0 {
+			if prevStart != i-1 {
+				t.Fatalf("expected [%d] prevStart to be %d but was %d", i, i-1, prevStart)
 			}
 
-			if nextEnd != i+1 {
-				t.Fatalf("expected [%d] nextEnd to be %d but was %d", i, i+1, nextEnd)
+			if prevEnd != i-1 {
+				t.Fatalf("expected [%d] prevEnd to be %d but was %d", i, i-1, prevEnd)
+			}
+		} else {
+			if prevStart != -1 || prevEnd != -1 {
+				t.Fatalf("expected [%d] prevRow called on the last row should return -1 but returned %d/%d", i, prevStart, prevEnd)
+			}
+		}
+
+		buf.Seek(1, io.SeekCurrent)
+	}
+
+	buf = New(10)
+	newLineCount = 1
+	for i := 0; i < newLineCount; i++ {
+		buf.Insert([]byte(fmt.Sprintf("%d\n", i)))
+	}
+	buf.Insert([]byte(fmt.Sprintf("%d", newLineCount)))
+
+	buf.Seek(0, io.SeekStart)
+
+	for i := 0; i < newLineCount; i++ {
+		curStart, curEnd := buf.GetLine(0)
+		nextStart, nextEnd := buf.GetLine(1)
+		prevStart, prevEnd := buf.GetLine(-1)
+
+		if curStart != i*2 {
+			t.Fatalf("expected [%d] curStart to be %d but was %d", i, i*2, curStart)
+		}
+		if curEnd != i*2+1 {
+			t.Fatalf("expected [%d] curEnd to be %d but was %d", i, i*2+1, curEnd)
+		}
+
+		if i < newLineCount {
+			if nextStart != curStart+2 {
+				t.Fatalf("expected [%d] nextStart to be %d but was %d", curStart, curStart+2, nextStart)
+			}
+
+			if nextEnd != curStart+3 {
+				t.Fatalf("expected [%d] nextEnd to be %d but was %d", curStart, curStart+3, nextEnd)
 			}
 		} else {
 			if nextStart != -1 || nextEnd != -1 {
@@ -277,8 +324,23 @@ func TestGetLineABunchOfEmptyLines(t *testing.T) {
 			}
 		}
 
-		buf.Seek(1, io.SeekCurrent)
+		if i > 0 {
+			if prevStart != curStart-2 {
+				t.Fatalf("expected [%d] prevStart to be %d but was %d", curStart, curStart-2, prevStart)
+			}
+
+			if prevEnd != curStart-1 {
+				t.Fatalf("expected [%d] prevEnd to be %d but was %d", curStart, curStart-1, prevEnd)
+			}
+		} else {
+			if prevStart != -1 || prevEnd != -1 {
+				t.Fatalf("expected [%d] prevRow called on the last row should return -1 but returned %d/%d", i, prevStart, prevEnd)
+			}
+		}
+
+		buf.Seek(2, io.SeekCurrent)
 	}
+
 }
 
 func TestSeek(t *testing.T) {
@@ -296,6 +358,11 @@ func TestSeek(t *testing.T) {
 		n, _ = buf.Seek(cur, io.SeekStart)
 		if int(n) != i {
 			t.Fatalf("bad seek back to end n=%d expect=%d", n, i)
+		}
+
+		n, _ = buf.Seek(0, io.SeekEnd)
+		if int(n) != i {
+			t.Fatalf("bad seek end n=%d expect=%d", n, i)
 		}
 
 		s := strconv.Itoa(i)
