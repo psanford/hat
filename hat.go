@@ -150,7 +150,18 @@ MAIN_LOOP:
 				} else if c == ctrlC || c == ctrlD {
 					break MAIN_LOOP
 				} else if c == ctrlA { // ctrl-a
+					lineStart, _ := ed.buf.GetLine(0)
+					ed.buf.Seek(int64(lineStart), io.SeekStart)
+					ed.out.Write(moveTo(row, 1))
 				} else if c == ctrlE { // ctrl-e
+					lineStart, lineEnd := ed.buf.GetLine(0)
+
+					if lineEnd == endBufPos-1 {
+						lineEnd = endBufPos
+					}
+
+					ed.buf.Seek(int64(lineEnd), io.SeekStart)
+					ed.out.Write(moveTo(row, 1+lineEnd-lineStart))
 				} else if c == ctrlL {
 					// redraw the section of the terminal we own
 					ed.redrawVisible()
