@@ -18,19 +18,25 @@ type editor struct {
 
 	buf *gapbuffer.GapBuffer
 
+	promptLine     int
+	editorRowCount int
+
 	parser *ansiparser.Parser
 
 	debug              io.Writer
 	debugCurrentBuffer *os.File
 
-	f   *os.File
+	in  *os.File
+	out *os.File
+
 	fd  int
 	err error
 }
 
 func main() {
 	ed := &editor{
-		f:   os.Stdin,
+		in:  os.Stdin,
+		out: os.Stdout,
 		fd:  int(os.Stdin.Fd()),
 		buf: gapbuffer.New(2),
 	}
@@ -52,8 +58,10 @@ func main() {
 
 	prevTermCols, prevTermRows := ed.termSize()
 	prevRow, _ := ed.cursorPos()
-	promptLine := prevRow - 1
+	ed.promptLine = prevRow - 1
 	lastInsertNewline := false
+
+	ed.editorRowCount = prevTermRows - ed.promptLine
 
 	ed.parser = ansiparser.New(context.Background())
 	events := ed.parser.EventChan()
@@ -62,6 +70,7 @@ MAIN_LOOP:
 	for {
 		row, col := ed.cursorPos()
 		bufPos, _ := ed.buf.Seek(0, io.SeekCurrent)
+		endBufPos := ed.buf.Size()
 
 		termCols, termRows := ed.termSize()
 		if prevTermCols != termCols || prevTermRows != termRows {
@@ -74,9 +83,10 @@ MAIN_LOOP:
 
 		if lastInsertNewline {
 			if row == prevRow { // we're at the bottom of the terminal
-				if promptLine > 1 {
-					promptLine--
-					fmt.Fprintf(debug, "prompt move up 1 line to %d\n", promptLine)
+				if ed.promptLine > 1 {
+					ed.promptLine--
+					ed.editorRowCount++
+					fmt.Fprintf(debug, "prompt move up 1 line to %d\n", ed.promptLine)
 				}
 			} else {
 				fmt.Fprintf(debug, "prompt at top\n")
@@ -85,9 +95,14 @@ MAIN_LOOP:
 			lastInsertNewline = false
 		}
 
+		if row <= ed.promptLine {
+			fmt.Fprintf(debug, "we've fallen out of bounds! ed.promptLine=%d, row=%d", ed.promptLine, row)
+			// panic(fmt.Sprintf("we've fallen out of bounds! ed.promptLine=%d, row=%d", ed.promptLine, row))
+		}
+
 		prevRow = row
 
-		fmt.Fprintf(debug, "loop_start row: %d, col: %d, term:<%d, %d> bufPos: %d, bufLine:%d\n", row, col, termCols, termRows, bufPos, ed.getLineNumber())
+		fmt.Fprintf(debug, "loop_start row: %d, col: %d, term:<%d, %d> editorRowCount=%d bufPos: %d, bufLine:%d\n", row, col, termCols, termRows, ed.editorRowCount, bufPos, ed.getLineNumber())
 
 		ed.readBytes()
 
@@ -110,45 +125,49 @@ MAIN_LOOP:
 						// we've deleted the previous newline. We need to redraw the previous lines and all following lines
 					}
 					// goto beginning of row
-					os.Stdout.Write(moveTo(row, 1))
+					ed.in.Write(moveTo(row, 1))
 					// clear line
-					os.Stdout.Write([]byte(vt100ClearToEndOfLine))
+					ed.in.Write([]byte(vt100ClearToEndOfLine))
 					// rewrite line
 					lineStart, lineEnd := ed.buf.GetLine(0)
 					lineBuf := make([]byte, lineEnd-lineStart+1)
 					ed.buf.ReadAt(lineBuf, int64(lineStart))
-					os.Stdout.Write(lineBuf)
+					ed.in.Write(lineBuf)
 					// move cursor back to correct position
 					colOffset := int(bufPos) + -1 - lineStart
 					colOffset++ // inc b/c the terminal coords are 1 based
-					os.Stdout.Write(moveTo(row, colOffset))
+					ed.in.Write(moveTo(row, colOffset))
 				} else if c == '\r' {
 					fmt.Fprintf(debug, "loop: is newline\n")
 					ed.buf.Insert([]byte{'\n'})
-					os.Stdout.Write([]byte("\r\n"))
+					ed.in.Write([]byte("\r\n"))
 					lastInsertNewline = true
 				} else if c == ctrlC || c == ctrlD {
 					break MAIN_LOOP
 				} else if c == ctrlA { // ctrl-a
 				} else if c == ctrlE { // ctrl-e
+				} else if c == ctrlL {
+					// redraw the section of the terminal we own
+					ed.redrawVisible()
+
 				} else {
 					fmt.Fprintf(debug, "loop: is plain char\n")
 					fmt.Fprintf(ed.debug, "write char %d %x %c\n", c, c, c)
 					ed.buf.Insert([]byte{c})
 
 					// goto beginning of row
-					os.Stdout.Write(moveTo(row, 1))
+					ed.in.Write(moveTo(row, 1))
 					// clear line
-					os.Stdout.Write([]byte(vt100ClearToEndOfLine))
+					ed.in.Write([]byte(vt100ClearToEndOfLine))
 					// rewrite line
 					lineStart, lineEnd := ed.buf.GetLine(0)
 					lineBuf := make([]byte, lineEnd-lineStart+1)
 					ed.buf.ReadAt(lineBuf, int64(lineStart))
-					os.Stdout.Write(lineBuf)
+					ed.in.Write(lineBuf)
 					// move cursor back to correct position
 					colOffset := int(bufPos) + 1 - lineStart
 					colOffset++ // inc b/c the terminal coords are 1 based
-					os.Stdout.Write(moveTo(row, colOffset))
+					ed.in.Write(moveTo(row, colOffset))
 				}
 			case ansiparser.CursorMovement:
 				switch ee.Direction {
@@ -173,10 +192,11 @@ MAIN_LOOP:
 					}
 
 					ed.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
-					os.Stdout.Write(moveTo(row-1, offsetCurLine+1))
+					ed.in.Write(moveTo(row-1, offsetCurLine+1))
 				case ansiparser.Down:
 					nextStart, nextEnd := ed.buf.GetLine(1)
 					if nextStart == -1 {
+						fmt.Fprintf(debug, "<down>: getLine(1) Failed, we think we're at the end of the buffer\n")
 						continue
 					}
 
@@ -192,35 +212,31 @@ MAIN_LOOP:
 					}
 
 					ed.buf.Seek(int64(nextStart+offsetCurLine), io.SeekStart)
-					os.Stdout.Write(moveTo(row+1, offsetCurLine+1))
+					ed.in.Write(moveTo(row+1, offsetCurLine+1))
 
 				case ansiparser.Forward:
-					_, endPos := ed.buf.GetLine(0)
-					newPos, _ := ed.buf.Seek(1, io.SeekCurrent)
-					if newPos == bufPos {
-						// we're at the end of the buffer
-					} else {
-						if newPos <= int64(endPos) {
-							os.Stdout.Write([]byte(vt100CursorRight))
-						} else {
-							os.Stdout.Write([]byte(vt100CursorDown))
-							os.Stdout.Write([]byte{'\r'})
-						}
+					// if we're at the very end of the file our cursor should be at lastpos+1
+					_, eolPos := ed.buf.GetLine(0)
+					fmt.Fprintf(ed.debug, "right: bufPos=%d  eolPos=%d endBufPos=%d", bufPos, eolPos, endBufPos)
+					if eolPos == endBufPos-1 {
+						eolPos = endBufPos
 					}
+					if bufPos == int64(eolPos) {
+						fmt.Fprintf(ed.debug, "RIGHT STOPPED: at end of buffer bufPos=%d\n", bufPos)
+						continue
+					}
+					newPos, _ := ed.buf.Seek(1, io.SeekCurrent)
+					fmt.Fprintf(ed.debug, "request RIGHT: bufPos=%d, newPos=%d eolPos=%d endPos=%d\n", bufPos, newPos, eolPos, endBufPos)
+					ed.in.Write(moveTo(row, col+1))
 				case ansiparser.Backward:
 					startLine, _ := ed.buf.GetLine(0)
 					if bufPos == 0 {
 						// we're at the beginning of the buffer
 					} else {
-						newPos, _ := ed.buf.Seek(-1, io.SeekCurrent)
-						if newPos < int64(startLine) {
-							newStartLine, newEndLine := ed.buf.GetLine(0)
-							fmt.Fprintf(ed.debug, "LEFT: go up 1 line: row=%d width: %d-%d+1\n", row-1, newEndLine, newStartLine)
-							fmt.Fprintf(ed.debug, "LEFT: go up (to: %d, %d)\n", row-1, newEndLine-newStartLine+1)
-							os.Stdout.Write(moveTo(row-1, newEndLine-newStartLine+1))
-						} else {
+						if bufPos > int64(startLine) {
 							fmt.Fprintf(ed.debug, "LEFT: just left 1 (to: %d, %d)\n", row, col-1)
-							os.Stdout.Write(moveTo(row, col-1))
+							ed.buf.Seek(-1, io.SeekCurrent)
+							ed.in.Write(moveTo(row, col-1))
 						}
 					}
 				}
@@ -251,7 +267,33 @@ MAIN_LOOP:
 // redrawVisible redraws the current editor viewport.
 // The editor viewport is the number of lines we've used so far in the terminal.
 func (ed *editor) redrawVisible() {
+	cursorRow, _ := ed.cursorPos()
+	_, termRows := ed.termSize()
 
+	ed.out.Write([]byte(vt100SaveCursorPosition))
+
+	editorStartRow := termRows + 1 - ed.editorRowCount
+	fmt.Fprintf(ed.debug, "!!! redrawVisible: start_row=%d cursor_row=%d row_count=%d  term_rows=%d\n", editorStartRow, cursorRow, ed.editorRowCount, termRows)
+
+	for row := editorStartRow; row < editorStartRow+ed.editorRowCount; row++ {
+		offset := row - cursorRow
+		ed.out.Write(moveTo(row, 1))
+		ed.out.Write([]byte(vt100ClearToEndOfLine))
+		bufStartLine, bufEndLine := ed.buf.GetLine(offset)
+		fmt.Fprintf(ed.debug, "!!! redrawVisible: row=%d offset=%d bufstart=%d bufend=%d size=%d start=%d\n", row, offset, bufStartLine, bufEndLine, bufEndLine+1-bufStartLine, bufStartLine)
+		fmt.Fprintf(ed.debug, "!!! info=%s\n", ed.buf.DebugInfo())
+		if bufStartLine == -1 {
+			fmt.Fprintf(ed.debug, "row=%d empty line\n", row)
+			continue
+		}
+
+		line := make([]byte, bufEndLine+1-bufStartLine)
+		ed.buf.ReadAt(line, int64(bufStartLine))
+		fmt.Fprintf(ed.debug, "!!! redrawVisible: write_line=<%s>\n", line)
+		ed.out.Write(line)
+	}
+
+	ed.out.Write([]byte(vt100RestoreCursorPosition))
 }
 
 func (ed *editor) cursorPos() (row, col int) {
@@ -272,7 +314,7 @@ func (ed *editor) readChar() (byte, error) {
 		return 0, ed.err
 	}
 	b := make([]byte, 1)
-	_, err := ed.f.Read(b)
+	_, err := ed.in.Read(b)
 	if err != nil {
 		ed.err = err
 	}
@@ -290,7 +332,7 @@ func (ed *editor) readBytes() (int, error) {
 		return 0, ed.err
 	}
 	b := make([]byte, 128)
-	n, err := ed.f.Read(b)
+	n, err := ed.in.Read(b)
 	if err != nil {
 		ed.err = err
 	}
@@ -342,11 +384,15 @@ const (
 
 	vt100CursorPosition = "\x1b[%d;%dH"
 
+	vt100SaveCursorPosition    = "\x1b7"
+	vt100RestoreCursorPosition = "\x1b8"
+
 	ctrlA = 0x01
 	ctrlB = 0x02
 	ctrlC = 0x03
 	ctrlD = 0x04
 	ctrlE = 0x05
+	ctrlL = 0x0C
 )
 
 func (ed *editor) restoreTerminal() {
