@@ -123,6 +123,11 @@ MAIN_LOOP:
 					deleted := ed.buf.Delete(1)
 					if len(deleted) > 0 && deleted[0] == '\n' {
 						// we've deleted the previous newline. We need to redraw the previous lines and all following lines
+						lineStart, _ := ed.buf.GetLine(0)
+						lineOffset := bufPos - int64(lineStart)
+						ed.out.Write(moveTo(row-1, int(lineOffset)))
+						ed.redrawVisible()
+						continue
 					}
 					// goto beginning of row
 					ed.in.Write(moveTo(row, 1))
