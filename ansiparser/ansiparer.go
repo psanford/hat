@@ -39,6 +39,10 @@ func (p *Parser) Write(b []byte) (int, error) {
 	return p.parser.Parse(b)
 }
 
+func (p *Parser) SetLogger(logf func(string, ...interface{})) {
+	p.parser = ansiterm.CreateParser("Ground", p.eventHandler, ansiterm.WithLogf(logf))
+}
+
 type Event interface {
 }
 

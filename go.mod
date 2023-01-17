@@ -7,3 +7,6 @@ require (
 	github.com/google/go-cmp v0.4.0
 	golang.org/x/sys v0.0.0-20210616094352-59db8d763f22
 )
+
+
+replace github.com/Azure/go-ansiterm => /home/psanford/projects/thirdparty/go-ansiterm
