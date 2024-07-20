@@ -16,6 +16,10 @@ func New(t terminal.Terminal) *VT100 {
 	}
 }
 
+func (t *VT100) Write(b []byte) (int, error) {
+	return t.term.Write(b)
+}
+
 func (t *VT100) CursorPos() (row, col int) {
 	if _, err := t.term.Write([]byte(vt100GetCursorActivePos)); err != nil {
 		panic(err)

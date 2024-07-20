@@ -69,6 +69,3 @@ func (t *Term) Size() (cols, rows int) {
 	}
 	return int(ws.Col), int(ws.Row)
 }
-
-type MockTerm struct {
-}
