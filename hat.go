@@ -36,7 +36,7 @@ type editor struct {
 
 	debugLog io.Writer
 
-	debugEventCh chan struct{}
+	testEventProcessedCh chan struct{}
 
 	in io.Reader
 	// out *os.File or io.Writer
@@ -255,7 +255,7 @@ MAIN_LOOP:
 			os.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
 
 			select {
-			case ed.debugEventCh <- struct{}{}:
+			case ed.testEventProcessedCh <- struct{}{}:
 			default:
 			}
 		}

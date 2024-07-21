@@ -240,7 +240,7 @@ func newTestEditor(ctx context.Context, term terminal.Terminal) (*editor, *ioTra
 		done:     make(chan struct{}),
 	}
 
-	ed.debugEventCh = tracker.evtChan
+	ed.testEventProcessedCh = tracker.evtChan
 
 	return ed, tracker
 }
