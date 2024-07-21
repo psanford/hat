@@ -132,7 +132,7 @@ MAIN_LOOP:
 			case <-ctx.Done():
 				return
 			default:
-				fmt.Fprintf(debug, "CONTINUE MAIN_LOOP\n")
+				fmt.Fprintf(debug, "\nCONTINUE MAIN_LOOP\n")
 
 				continue MAIN_LOOP
 			}
@@ -145,7 +145,10 @@ MAIN_LOOP:
 				} else if c == '\r' {
 					fmt.Fprintf(debug, "loop: is newline\n")
 					ed.buf.Insert([]byte{'\n'})
-					ed.vt100.Write([]byte("\r\n"))
+
+					ed.vt100.Write([]byte("\r\n")) // only do this if we need to scroll?
+					ed.redrawVisible()
+
 					lastInsertNewline = true
 				} else if c == ctrlC || c == ctrlD {
 					break MAIN_LOOP
@@ -168,7 +171,6 @@ MAIN_LOOP:
 
 				} else {
 					fmt.Fprintf(debug, "loop: is plain char <%c>\n", c)
-					fmt.Fprintf(ed.debugLog, "write char %d %x <%c>\n", c, c, c)
 					ed.buf.Insert([]byte{c})
 
 					// goto beginning of row

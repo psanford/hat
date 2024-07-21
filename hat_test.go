@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"sync/atomic"
 	"testing"
 
 	"github.com/psanford/hat/terminal"
@@ -27,8 +26,6 @@ func TestEditor(t *testing.T) {
 	in.WriteString("\r")
 	in.WriteString("2\r")
 	in.WriteString("3")
-
-	in.Wait()
 
 	var expect bytes.Buffer
 
@@ -54,10 +51,8 @@ func TestEditor(t *testing.T) {
 	fmt.Fprintf(&expect, "           %s", resetSeq)
 	checkResult()
 
-	in.Reset(ctx)
 	in.WriteControl(vt100CursorLeft)
 	in.WriteString("4")
-	in.Wait()
 
 	expect = bytes.Buffer{}
 	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
@@ -67,10 +62,8 @@ func TestEditor(t *testing.T) {
 	fmt.Fprintf(&expect, "           %s", resetSeq)
 	checkResult()
 
-	in.Reset(ctx)
 	in.WriteControl(vt100CursorUp)
 	in.WriteString("5")
-	in.Wait()
 
 	expect = bytes.Buffer{}
 	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
@@ -80,18 +73,15 @@ func TestEditor(t *testing.T) {
 	fmt.Fprintf(&expect, "           %s", resetSeq)
 	checkResult()
 
-	in.Reset(ctx)
-	in.WriteControl(vt100CursorUp)
 	in.WriteString("\r")
 	in.WriteString("6")
-	in.Wait()
 
 	expect = bytes.Buffer{}
 	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "25         %s\n", resetSeq)
 	fmt.Fprintf(&expect, "6          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "43         %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s", resetSeq)
 	checkResult()
 
 }
@@ -110,58 +100,16 @@ type ioTracker struct {
 
 func (t *ioTracker) WriteString(s string) (int, error) {
 	n, err := t.w.Write([]byte(s))
-	atomic.AddUint32(&t.sent, uint32(n))
+	for i := 0; i < n; i++ {
+		<-t.evtChan
+	}
 	return n, err
 }
 
 func (t *ioTracker) WriteControl(s string) (int, error) {
 	n, err := t.w.Write([]byte(s))
-	atomic.AddUint32(&t.sent, 1)
+	<-t.evtChan
 	return n, err
-}
-
-func (t *ioTracker) watchEvents(ctx context.Context) {
-	var stopOnEqual bool
-	for {
-		select {
-		case <-t.evtChan:
-			recv := atomic.AddUint32(&t.recv, 1)
-			if stopOnEqual {
-				sent := atomic.LoadUint32(&t.sent)
-				if recv == sent {
-					close(t.done)
-					return
-				}
-			}
-		case <-t.sendDone:
-			stopOnEqual = true
-			t.sendDone = nil
-
-			recv := atomic.LoadUint32(&t.recv)
-			sent := atomic.LoadUint32(&t.sent)
-			if recv == sent {
-				close(t.done)
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (t *ioTracker) Wait() {
-	close(t.sendDone)
-	<-t.done
-}
-
-func (t *ioTracker) Reset(ctx context.Context) {
-	t.sendDone = make(chan struct{})
-	t.done = make(chan struct{})
-	t.recv = 0
-	t.sent = 0
-
-	go t.watchEvents(ctx)
-
 }
 
 func newTestEditor(ctx context.Context, term terminal.Terminal) (*editor, *ioTracker) {
@@ -176,8 +124,6 @@ func newTestEditor(ctx context.Context, term terminal.Terminal) (*editor, *ioTra
 	}
 
 	ed.debugEventCh = tracker.evtChan
-
-	go tracker.watchEvents(ctx)
 
 	return ed, tracker
 }
