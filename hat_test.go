@@ -9,13 +9,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/psanford/hat/terminal"
 	"github.com/psanford/hat/terminal/mock"
 )
 
 func TestEditor(t *testing.T) {
-	term := mock.NewMock(10, 5)
+	term := mock.NewMock(11, 5)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -24,37 +23,76 @@ func TestEditor(t *testing.T) {
 
 	go ed.run(ctx)
 
-	in.WriteString("1\r")
+	in.WriteString("1")
+	in.WriteString("\r")
 	in.WriteString("2\r")
-	in.WriteString("3\r")
+	in.WriteString("3")
 
 	in.Wait()
 
-	var screenBuf bytes.Buffer
-	err := term.Render(&screenBuf)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	var expect bytes.Buffer
-	fmt.Fprintf(&expect, "1         %s\n", resetSeq)
-	fmt.Fprintf(&expect, "2         %s\n", resetSeq)
-	fmt.Fprintf(&expect, "3         %s\n", resetSeq)
-	fmt.Fprintf(&expect, "          %s\n", resetSeq)
-	fmt.Fprintf(&expect, "          %s", resetSeq)
 
-	if !bytes.Equal(screenBuf.Bytes(), expect.Bytes()) {
-		fmt.Printf("got:\n%s", hex.Dump(screenBuf.Bytes()))
-		fmt.Printf("expect:\n%s", hex.Dump(expect.Bytes()))
-		t.Fatal(cmp.Diff(screenBuf.Bytes(), expect.Bytes()))
+	checkResult := func() {
+		t.Helper()
+		var screenBuf bytes.Buffer
+		err := term.Render(&screenBuf)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(screenBuf.Bytes(), expect.Bytes()) {
+			fmt.Printf("got:\n%s", hex.Dump(screenBuf.Bytes()))
+			fmt.Printf("expect:\n%s", hex.Dump(expect.Bytes()))
+			t.Fatal("buffer mismatch")
+		}
 	}
 
+	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "2          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "3          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s", resetSeq)
+	checkResult()
 
 	in.Reset(ctx)
+	in.WriteControl(vt100CursorLeft)
+	in.WriteString("4")
+	in.Wait()
 
+	expect = bytes.Buffer{}
+	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "2          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "43         %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s", resetSeq)
+	checkResult()
 
-	in.WriteControl(s string)
+	in.Reset(ctx)
+	in.WriteControl(vt100CursorUp)
+	in.WriteString("5")
+	in.Wait()
 
+	expect = bytes.Buffer{}
+	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "25         %s\n", resetSeq)
+	fmt.Fprintf(&expect, "43         %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s", resetSeq)
+	checkResult()
+
+	in.Reset(ctx)
+	in.WriteControl(vt100CursorUp)
+	in.WriteString("\r")
+	in.WriteString("6")
+	in.Wait()
+
+	expect = bytes.Buffer{}
+	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "25         %s\n", resetSeq)
+	fmt.Fprintf(&expect, "6          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "43         %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s\n", resetSeq)
+	checkResult()
 
 }
 
@@ -143,3 +181,10 @@ func newTestEditor(ctx context.Context, term terminal.Terminal) (*editor, *ioTra
 
 	return ed, tracker
 }
+
+const (
+	vt100CursorUp    = "\x1b[A"
+	vt100CursorDown  = "\x1b[B"
+	vt100CursorRight = "\x1b[C"
+	vt100CursorLeft  = "\x1b[D"
+)

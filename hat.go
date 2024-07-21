@@ -64,8 +64,6 @@ func (ed *editor) run(ctx context.Context) {
 	ed.debugLog = debug
 	// ed.buf.Debug = debug
 
-	fmt.Fprintf(debug, "hello\n")
-
 	prevTermCols, prevTermRows := ed.term.Size()
 	prevRow, _ := ed.vt100.CursorPos()
 	ed.promptLine = prevRow - 1
@@ -79,8 +77,6 @@ func (ed *editor) run(ctx context.Context) {
 		fmt.Fprintln(ed.debugLog)
 	})
 	events := ed.parser.EventChan()
-
-	fmt.Fprintf(debug, "before main loop\n")
 
 MAIN_LOOP:
 	for {
@@ -128,7 +124,7 @@ MAIN_LOOP:
 			var e ansiparser.Event
 			select {
 			case e = <-events:
-				fmt.Fprintf(debug, "event!!!: %T %v\n", e, e)
+				fmt.Fprintf(debug, "event: %T %v\n", e, e)
 				select {
 				case ed.debugEventCh <- struct{}{}:
 				default:
@@ -140,8 +136,6 @@ MAIN_LOOP:
 
 				continue MAIN_LOOP
 			}
-
-			fmt.Fprintf(debug, "event: %T %v\n", e, e)
 
 			switch ee := e.(type) {
 			case ansiparser.Character:
@@ -173,8 +167,8 @@ MAIN_LOOP:
 					ed.redrawVisible()
 
 				} else {
-					fmt.Fprintf(debug, "loop: is plain char\n")
-					fmt.Fprintf(ed.debugLog, "write char %d %x %c\n", c, c, c)
+					fmt.Fprintf(debug, "loop: is plain char <%c>\n", c)
+					fmt.Fprintf(ed.debugLog, "write char %d %x <%c>\n", c, c, c)
 					ed.buf.Insert([]byte{c})
 
 					// goto beginning of row
@@ -211,7 +205,7 @@ MAIN_LOOP:
 
 					offsetCurLine := int(bufPos) - curStart
 
-					fmt.Fprintf(debug, "moveup: pos: %d curStart: %d prevstart: %d prevEnd: %d\n", bufPos, curStart, prevStart, prevEnd)
+					fmt.Fprintf(debug, "<UP>: pos: %d curStart: %d prevstart: %d prevEnd: %d\n", bufPos, curStart, prevStart, prevEnd)
 
 					rowWidth := prevEnd - prevStart
 					if offsetCurLine > rowWidth {
@@ -223,12 +217,12 @@ MAIN_LOOP:
 				case ansiparser.Down:
 					nextStart, nextEnd := ed.buf.GetLine(1)
 					if nextStart == -1 {
-						fmt.Fprintf(debug, "<down>: getLine(1) Failed, we think we're at the end of the buffer\n")
+						fmt.Fprintf(debug, "<DOWN>: getLine(1) Failed, we think we're at the end of the buffer\n")
 						continue
 					}
 
 					curStart, curEnd := ed.buf.GetLine(0)
-					fmt.Fprintf(debug, "<down>: cur:%d curStart:%d curEnd:%d nextStart:%d nextEnd:%d\n", bufPos, curStart, curEnd, nextStart, nextEnd)
+					fmt.Fprintf(debug, "<DOWN>: cur:%d curStart:%d curEnd:%d nextStart:%d nextEnd:%d\n", bufPos, curStart, curEnd, nextStart, nextEnd)
 
 					offsetCurLine := int(bufPos) - curStart
 
@@ -435,7 +429,6 @@ func (ed *editor) readBytes() (int, error) {
 		ed.err = err
 	}
 
-	fmt.Fprintf(ed.debugLog, "ed_read: %+v\n", b[:n])
 	_, err = ed.parser.Write(b[:n])
 	if err != nil {
 		ed.err = err
