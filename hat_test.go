@@ -103,27 +103,12 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 
 	var expect bytes.Buffer
 
-	checkResult := func() {
-		t.Helper()
-		var screenBuf bytes.Buffer
-		err := term.Render(&screenBuf)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !bytes.Equal(screenBuf.Bytes(), expect.Bytes()) {
-			fmt.Printf("got:\n%s", hex.Dump(screenBuf.Bytes()))
-			fmt.Printf("expect:\n%s", hex.Dump(expect.Bytes()))
-			t.Fatal("buffer mismatch")
-		}
-	}
-
 	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "2          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "3          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "4          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s", resetSeq)
-	checkResult()
+	checkResult(t, term, &expect)
 
 	gotContent := string(ed.buf.DebugInfo().Bytes())
 	expectContent := "1\n2\n3\n4"
@@ -142,7 +127,7 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 	fmt.Fprintf(&expect, "           %s\n", resetSeq)
 	fmt.Fprintf(&expect, "4          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s", resetSeq)
-	checkResult()
+	checkResult(t, term, &expect)
 
 	gotContent = string(ed.buf.DebugInfo().Bytes())
 	expectContent = "1\n2\n\n4"
@@ -159,7 +144,7 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 	fmt.Fprintf(&expect, "4          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s", resetSeq)
-	checkResult()
+	checkResult(t, term, &expect)
 
 	gotContent = string(ed.buf.DebugInfo().Bytes())
 	expectContent = "1\n2\n4"
@@ -176,7 +161,7 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 	fmt.Fprintf(&expect, "4          %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s", resetSeq)
-	checkResult()
+	checkResult(t, term, &expect)
 
 	gotContent = string(ed.buf.DebugInfo().Bytes())
 	expectContent = "1\n\n4"
@@ -193,14 +178,16 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 	fmt.Fprintf(&expect, "           %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s\n", resetSeq)
 	fmt.Fprintf(&expect, "           %s", resetSeq)
-	checkResult()
+	checkResult(t, term, &expect)
 
 	gotContent = string(ed.buf.DebugInfo().Bytes())
 	expectContent = "1\n4"
 	if gotContent != expectContent {
 		t.Fatalf("got=%q expect=%q", gotContent, expectContent)
 	}
+}
 
+func TestPartialTerminal(t *testing.T) {
 }
 
 const resetSeq = "\x1b[0m"
