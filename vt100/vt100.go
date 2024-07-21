@@ -1,6 +1,7 @@
 package vt100
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/psanford/hat/terminal"
@@ -25,7 +26,12 @@ func (t *VT100) CursorPos() (row, col int) {
 		panic(err)
 	}
 
-	_, err := fmt.Fscanf(t.term, "\x1b[%d;%dR", &row, &col)
+	b, err := t.term.ReadControl()
+	if err != nil {
+		panic(err)
+	}
+	buf := bytes.NewBuffer(b)
+	_, err = fmt.Fscanf(buf, "\x1b[%d;%dR", &row, &col)
 	if err != nil {
 		panic(err)
 	}

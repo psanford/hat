@@ -17,7 +17,10 @@ func main() {
 
 	term := terminal.NewTerm(int(os.Stdin.Fd()))
 
-	run(term)
+	ed := newEditor(os.Stdin, os.Stdout, os.Stderr, term)
+
+	ctx := context.Background()
+	ed.run(ctx)
 }
 
 type editor struct {
@@ -33,22 +36,27 @@ type editor struct {
 
 	debugLog io.Writer
 
-	in  *os.File
-	out *os.File
+	debugEventCh chan struct{}
+
+	in io.Reader
+	// out *os.File or io.Writer
+	// err io.Writer
 
 	err error
 }
 
-func run(term terminal.Terminal) {
-
+func newEditor(in io.Reader, out io.Writer, err io.Writer, term terminal.Terminal) *editor {
 	ed := &editor{
-		in:    os.Stdin,
-		out:   os.Stdout,
+		in:    in,
 		term:  term,
 		vt100: vt100.New(term),
 		buf:   gapbuffer.New(2),
 	}
 
+	return ed
+}
+
+func (ed *editor) run(ctx context.Context) {
 	ed.term.EnableRawMode()
 	defer ed.term.Restore()
 
@@ -121,8 +129,15 @@ MAIN_LOOP:
 			select {
 			case e = <-events:
 				fmt.Fprintf(debug, "event!!!: %T %v\n", e, e)
+				select {
+				case ed.debugEventCh <- struct{}{}:
+				default:
+				}
+			case <-ctx.Done():
+				return
 			default:
 				fmt.Fprintf(debug, "CONTINUE MAIN_LOOP\n")
+
 				continue MAIN_LOOP
 			}
 
@@ -136,7 +151,7 @@ MAIN_LOOP:
 				} else if c == '\r' {
 					fmt.Fprintf(debug, "loop: is newline\n")
 					ed.buf.Insert([]byte{'\n'})
-					ed.in.Write([]byte("\r\n"))
+					ed.vt100.Write([]byte("\r\n"))
 					lastInsertNewline = true
 				} else if c == ctrlC || c == ctrlD {
 					break MAIN_LOOP
@@ -170,7 +185,8 @@ MAIN_LOOP:
 					lineStart, lineEnd := ed.buf.GetLine(0)
 					lineBuf := make([]byte, lineEnd-lineStart+1)
 					ed.buf.ReadAt(lineBuf, int64(lineStart))
-					ed.in.Write(lineBuf)
+					ed.vt100.Write(lineBuf)
+
 					// move cursor back to correct position
 					colOffset := int(bufPos) + 1 - lineStart
 					colOffset++ // inc b/c the terminal coords are 1 based
@@ -332,7 +348,7 @@ func (ed *editor) redrawVisible() {
 		line := make([]byte, bufEndLine+1-bufStartLine)
 		ed.buf.ReadAt(line, int64(bufStartLine))
 		fmt.Fprintf(ed.debugLog, "!!! redrawVisible: write_line=<%s>\n", line)
-		ed.out.Write(line)
+		ed.vt100.Write(line)
 	}
 
 	ed.vt100.RestoreCursorPos()
@@ -379,7 +395,8 @@ func (ed *editor) deletePrevChar() {
 	lineStart, lineEnd := ed.buf.GetLine(0)
 	lineBuf := make([]byte, lineEnd-lineStart+1)
 	ed.buf.ReadAt(lineBuf, int64(lineStart))
-	ed.in.Write(lineBuf)
+	ed.vt100.Write(lineBuf)
+
 	// move cursor back to correct position
 	colOffset := int(bufPos) + -1 - lineStart
 	colOffset++ // inc b/c the terminal coords are 1 based

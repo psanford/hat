@@ -1,15 +1,19 @@
 package mock
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/psanford/hat/vt100"
 )
 
+const resetSeq = "\x1b[0m"
+
 func TestMock(t *testing.T) {
 
-	cols := 80
+	cols := 10
 	rows := 5
 	term := NewMock(cols, rows)
 
@@ -23,19 +27,26 @@ func TestMock(t *testing.T) {
 
 	vt := vt100.New(term)
 
-	vt.Write([]byte("hi there\r\n"))
-	vt.Write([]byte("line 2\r\n"))
-	vt.Write([]byte("line 3\r\n"))
-
-	fmt.Println("terminal:")
-	for _, line := range term.display.Lines {
-		for _, c := range line {
-			fmt.Printf("%c", c.Code)
-		}
-		fmt.Println()
+	vt.Write([]byte("first line\r\n"))
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(vt, "line %d\r\n", i)
 	}
-	fmt.Println()
+	vt.Write([]byte("last line\r\n"))
 
-	fmt.Printf("stdout: %s\n", term.stdout.Bytes())
+	var screenBuf bytes.Buffer
+	err := term.Render(&screenBuf)
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	var expect bytes.Buffer
+	fmt.Fprintf(&expect, "line 6    %s\n", resetSeq)
+	fmt.Fprintf(&expect, "line 7    %s\n", resetSeq)
+	fmt.Fprintf(&expect, "line 8    %s\n", resetSeq)
+	fmt.Fprintf(&expect, "line 9    %s\n", resetSeq)
+	fmt.Fprintf(&expect, "last line %s", resetSeq)
+
+	if !bytes.Equal(screenBuf.Bytes(), expect.Bytes()) {
+		t.Fatal(cmp.Diff(screenBuf.Bytes(), expect.Bytes()))
+	}
 }

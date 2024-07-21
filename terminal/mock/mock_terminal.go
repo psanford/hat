@@ -2,33 +2,69 @@ package mock
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
-	"github.com/markkurossi/vt100"
+	"github.com/vito/midterm"
 )
 
 type MockTerm struct {
 	cols int
 	rows int
 
-	display *vt100.Display
-	emu     *vt100.Emulator
+	term *midterm.Terminal
 
 	stdout *bytes.Buffer
+
+	ctrlBuf bytes.Buffer
+	ctrlCh  chan []byte
 }
 
 func NewMock(cols, rows int) *MockTerm {
 	var stdout bytes.Buffer
-	display := vt100.NewDisplay(cols, rows)
-	emulator := vt100.NewEmulator(&stdout, io.Discard, display)
+
+	t := midterm.NewTerminal(rows, cols)
+
+	pr0, pw0 := io.Pipe()
+
+	ctrlCh := make(chan []byte, 1)
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := pr0.Read(buf)
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				panic(fmt.Sprintf("pr0 read err: %s", err))
+			}
+
+			if n < 1 {
+				continue
+			}
+			got := buf[:n]
+
+			sendBuf := make([]byte, n)
+			copy(sendBuf, got)
+
+			select {
+			case ctrlCh <- sendBuf:
+			default:
+				panic("Would block sending to ctrlCh")
+			}
+		}
+	}()
+
+	t.ForwardResponses = pw0
+	t.Raw = true
 
 	return &MockTerm{
 		cols: cols,
 		rows: rows,
 
-		display: display,
-		emu:     emulator,
-		stdout:  &stdout,
+		term:   t,
+		stdout: &stdout,
+		ctrlCh: ctrlCh,
 	}
 }
 
@@ -38,19 +74,18 @@ func (t *MockTerm) EnableRawMode() {
 func (t *MockTerm) Restore() {
 }
 
-func (t *MockTerm) Read(b []byte) (int, error) {
-	return 0, nil
+func (t *MockTerm) ReadControl() ([]byte, error) {
+	return <-t.ctrlCh, nil
 }
 
 func (t *MockTerm) Write(b []byte) (int, error) {
-	for _, c := range b {
-		t.emu.Input(int(c))
-	}
-	return len(b), nil
+	return t.term.Write(b)
 }
 
 func (t *MockTerm) Size() (cols, rows int) {
-	p := t.display.Size()
+	return t.term.Width, t.term.Height
+}
 
-	return p.X, p.Y
+func (t *MockTerm) Render(w io.Writer) error {
+	return t.term.Render(w)
 }
