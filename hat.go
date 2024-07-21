@@ -125,10 +125,6 @@ MAIN_LOOP:
 			select {
 			case e = <-events:
 				fmt.Fprintf(debug, "event: %T %v\n", e, e)
-				select {
-				case ed.debugEventCh <- struct{}{}:
-				default:
-				}
 			case <-ctx.Done():
 				return
 			default:
@@ -257,6 +253,11 @@ MAIN_LOOP:
 
 			info := ed.buf.DebugInfo()
 			os.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
+
+			select {
+			case ed.debugEventCh <- struct{}{}:
+			default:
+			}
 		}
 	}
 
