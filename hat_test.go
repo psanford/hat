@@ -10,6 +10,7 @@ import (
 
 	"github.com/psanford/hat/terminal"
 	"github.com/psanford/hat/terminal/mock"
+	"github.com/psanford/hat/vt100"
 )
 
 func TestEditorBasic(t *testing.T) {
@@ -81,7 +82,7 @@ func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {
 	if !bytes.Equal(screenBuf.Bytes(), expect.Bytes()) {
 		fmt.Printf("got:\n%s", hex.Dump(screenBuf.Bytes()))
 		fmt.Printf("expect:\n%s", hex.Dump(expect.Bytes()))
-		t.Fatal("buffer mismatch")
+		t.Error("buffer mismatch")
 	}
 }
 
@@ -188,6 +189,60 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 }
 
 func TestPartialTerminal(t *testing.T) {
+	term := mock.NewMock(11, 6)
+
+	vt := vt100.New(term)
+	vt.Write([]byte("=OTHERAPP="))
+	vt.MoveTo(2, 1)
+	vt.Write([]byte("=OTHERAPP="))
+	vt.MoveTo(3, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ed, in := newTestEditor(ctx, term)
+
+	go ed.run(ctx)
+
+	in.WriteString("1\r")
+	in.WriteString("2\r")
+	in.WriteString("3\r")
+	in.WriteString("4")
+
+	var expect bytes.Buffer
+
+	fmt.Fprintf(&expect, "=OTHERAPP= %s\n", resetSeq)
+	fmt.Fprintf(&expect, "=OTHERAPP= %s\n", resetSeq)
+	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "2          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "3          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "4          %s", resetSeq)
+	checkResult(t, term, &expect)
+
+	gotContent := string(ed.buf.DebugInfo().Bytes())
+	expectContent := "1\n2\n3\n4"
+	if gotContent != expectContent {
+		t.Fatalf("got=%q expect=%q", gotContent, expectContent)
+	}
+
+	in.WriteControl(vt100CursorUp)
+	in.WriteString("\r")
+
+	expect = bytes.Buffer{}
+	fmt.Fprintf(&expect, "=OTHERAPP= %s\n", resetSeq)
+	fmt.Fprintf(&expect, "1          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "2          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "3          %s\n", resetSeq)
+	fmt.Fprintf(&expect, "           %s\n", resetSeq)
+	fmt.Fprintf(&expect, "4          %s", resetSeq)
+	checkResult(t, term, &expect)
+
+	gotContent = string(ed.buf.DebugInfo().Bytes())
+	expectContent = "1\n2\n3\n\n4"
+	if gotContent != expectContent {
+		t.Fatalf("got=%q expect=%q", gotContent, expectContent)
+	}
+
 }
 
 const resetSeq = "\x1b[0m"
