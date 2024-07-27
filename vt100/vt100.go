@@ -17,11 +17,27 @@ func New(t terminal.Terminal) *VT100 {
 	}
 }
 
+// Size returns the terminal size in number of columns, rows
+func (t *VT100) Size() TermCoord {
+
+	cols, rows := t.term.Size()
+	return TermCoord{
+		Col: cols,
+		Row: rows,
+	}
+
+}
+
 func (t *VT100) Write(b []byte) (int, error) {
 	return t.term.Write(b)
 }
 
-func (t *VT100) CursorPos() (row, col int) {
+// A terminal location in terminal space (1 based)
+type TermCoord struct {
+	Row, Col int
+}
+
+func (t *VT100) CursorPos() TermCoord {
 	if _, err := t.term.Write([]byte(vt100GetCursorActivePos)); err != nil {
 		panic(err)
 	}
@@ -31,12 +47,13 @@ func (t *VT100) CursorPos() (row, col int) {
 		panic(err)
 	}
 	buf := bytes.NewBuffer(b)
-	_, err = fmt.Fscanf(buf, "\x1b[%d;%dR", &row, &col)
+	var c TermCoord
+	_, err = fmt.Fscanf(buf, "\x1b[%d;%dR", &c.Row, &c.Col)
 	if err != nil {
 		panic(err)
 	}
 
-	return
+	return c
 }
 
 func (t *VT100) SaveCursorPos() {
@@ -49,6 +66,10 @@ func (t *VT100) RestoreCursorPos() {
 
 func (t *VT100) MoveTo(line, col int) {
 	t.term.Write([]byte(fmt.Sprintf(vt100CursorPosition, line, col)))
+}
+
+func (t *VT100) MoveToCoord(coord TermCoord) {
+	t.term.Write([]byte(fmt.Sprintf(vt100CursorPosition, coord.Row, coord.Col)))
 }
 
 func (t *VT100) ClearToEndOfLine() {
