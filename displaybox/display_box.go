@@ -76,6 +76,24 @@ func (d *DisplayBox) MvLeft() {
 func (d *DisplayBox) MvRight() {
 	d.cursorPosSanityCheck()
 
+	bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
+	endBufPos := d.buf.Size()
+
+	// if we're at the very end of the file our cursor should be at lastpos+1
+	_, eolPos := d.buf.GetLine(0)
+	if eolPos == endBufPos-1 {
+		eolPos = endBufPos
+	}
+	if bufPos == int64(eolPos) {
+		return
+	}
+	_, err := d.buf.Seek(1, io.SeekCurrent)
+	if err != nil {
+		panic(fmt.Sprintf("MvRight seek forward unexepected error: %s", err))
+	}
+
+	d.cursorCoord.X++
+	d.redrawCursor()
 }
 
 func (d *DisplayBox) MvUp() {
@@ -108,6 +126,33 @@ func (d *DisplayBox) MvUp() {
 }
 
 func (d *DisplayBox) MvDown() {
+	d.cursorPosSanityCheck()
+
+	nextStart, nextEnd := d.buf.GetLine(1)
+	if nextStart == -1 {
+		// on last line
+		return
+	}
+
+	curStart, _ := d.buf.GetLine(0)
+
+	bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
+	offsetCurLine := int(bufPos) - curStart
+
+	rowWidth := nextEnd - nextStart
+
+	if offsetCurLine > rowWidth {
+		offsetCurLine = rowWidth
+	}
+
+	_, err := d.buf.Seek(int64(nextStart+offsetCurLine), io.SeekStart)
+	if err != nil {
+		panic(fmt.Sprintf("MvDown unexpected seek error: %s", err))
+	}
+
+	d.cursorCoord.Y++
+	d.cursorCoord.X = offsetCurLine + 1
+	d.redrawCursor()
 }
 
 func (d *DisplayBox) MvBOL() {
@@ -227,6 +272,10 @@ func (d *DisplayBox) cursorPosSanityCheck() {
 	actualPos := d.vt100.CursorPos()
 	if actualPos != calced {
 		panic(fmt.Sprintf("cursor pos out of sync! expected:%+v but was:%+v", calced, actualPos))
+	}
+
+	if d.cursorCoord.Y >= d.editableRows {
+		panic(fmt.Sprintf("cursor pos >= editableRows posX=%d rowCount=%d", d.cursorCoord.Y, d.editableRows))
 	}
 }
 

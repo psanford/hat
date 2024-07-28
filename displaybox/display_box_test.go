@@ -150,6 +150,50 @@ func TestDisplayBox(t *testing.T) {
 				"           ",
 			},
 		},
+		{
+			name: "Move right, down and insert '%'",
+			action: func(d *DisplayBox) {
+				d.MvRight()
+				d.MvDown()
+				d.Insert([]byte("%"))
+			},
+			expect: []string{
+				"h#$i       ",
+				"@.2%       ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#$i     ~",
+				"~@.2%     ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Move right (nop), down (nop) and insert '^'",
+			action: func(d *DisplayBox) {
+				d.MvRight()
+				d.MvDown()
+				d.Insert([]byte("^"))
+			},
+			expect: []string{
+				"h#$i       ",
+				"@.2%^      ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#$i     ~",
+				"~@.2^     ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
 	}
 
 	for _, border := range []bool{false, true} {
