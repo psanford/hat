@@ -189,7 +189,68 @@ func TestDisplayBox(t *testing.T) {
 			withBorder: []string{
 				"~~~~       ",
 				"~h#$i     ~",
-				"~@.2^     ~",
+				"~@.2%^    ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Backspace",
+			action: func(d *DisplayBox) {
+				d.Backspace()
+			},
+			expect: []string{
+				"h#$i       ",
+				"@.2%       ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#$i     ~",
+				"~@.2%     ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Del (nop)",
+			action: func(d *DisplayBox) {
+				d.Del()
+			},
+			expect: []string{
+				"h#$i       ",
+				"@.2%       ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#$i     ~",
+				"~@.2%     ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Move Left, Del",
+			action: func(d *DisplayBox) {
+				d.MvLeft()
+				d.Del()
+			},
+			expect: []string{
+				"h#$i       ",
+				"@.2        ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#$i     ~",
+				"~@.2      ~",
 				"~~~~       ",
 				"           ",
 			},
