@@ -2,6 +2,7 @@ package displaybox
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/psanford/hat/gapbuffer"
 	"github.com/psanford/hat/vt100"
@@ -62,9 +63,19 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 }
 
 func (d *DisplayBox) MvLeft() {
+	if d.cursorCoord.X > 0 {
+		posT := d.cursorPosTermSpace()
+
+		d.buf.Seek(-1, io.SeekCurrent)
+		d.cursorCoord.X--
+
+		posT.Col--
+		d.vt100.MoveToCoord(posT)
+	}
 }
 
 func (d *DisplayBox) MvRight() {
+
 }
 
 func (d *DisplayBox) MvUp() {

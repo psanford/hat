@@ -12,69 +12,130 @@ import (
 )
 
 func TestDisplayBox(t *testing.T) {
-	term := mock.NewMock(11, 5)
-	vt := vt100.New(term)
-	gb := gapbuffer.New(2)
+	width := 11
+	height := 5
 
-	d := New(vt, gb, false)
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, false)
 
-	d.Insert([]byte("hi"))
+	testCases := []struct {
+		name       string
+		action     func(d *DisplayBox)
+		expect     []string
+		withBorder []string
+	}{
+		{
+			name:   "Insert 'hi'",
+			action: func(d *DisplayBox) { d.Insert([]byte("hi")) },
+			expect: []string{
+				"hi         ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~ hi      ~",
+				"~~~~       ",
+				"           ",
+				"           ",
+			},
+		},
+		{
+			name: "Insert newline and '2'",
+			action: func(d *DisplayBox) {
+				d.InsertNewline()
+				d.Insert([]byte("2"))
+			},
+			expect: []string{
+				"hi         ",
+				"2          ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~hi       ~",
+				"~2        ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Move left and insert '.'",
+			action: func(d *DisplayBox) {
+				d.MvLeft()
+				d.Insert([]byte("."))
+			},
+			expect: []string{
+				"hi         ",
+				".2         ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~hi       ~",
+				"~.2       ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Move left 4 times and insert '@'",
+			action: func(d *DisplayBox) {
+				d.MvLeft()
+				d.MvLeft()
+				d.MvLeft()
+				d.MvLeft()
+				d.Insert([]byte("@"))
+			},
+			expect: []string{
+				"hi         ",
+				"@.2        ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~hi       ~",
+				"~@.2      ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+	}
 
-	var expect bytes.Buffer
-	fmt.Fprintf(&expect, "hi         %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s", resetSeq)
+	for _, border := range []bool{false, true} {
+		for _, tc := range testCases {
+			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
+				db := dNoBorder
+				term := termNoBorder
 
-	d.InsertNewline()
-	d.Insert([]byte("2"))
+				if border {
+					db = dBorder
+					term = termBorder
+				}
 
-	expect.Reset()
-	fmt.Fprintf(&expect, "hi         %s\n", resetSeq)
-	fmt.Fprintf(&expect, "2          %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s", resetSeq)
+				tc.action(db)
 
-	checkResult(t, term, &expect)
+				buf := new(bytes.Buffer)
+				for _, line := range tc.expect {
+					buf.Write([]byte(line))
+					buf.Write([]byte(resetSeq))
+					buf.Write([]byte("\n"))
+				}
 
-	term = mock.NewMock(11, 5)
-	vt = vt100.New(term)
-	gb = gapbuffer.New(2)
-	d = New(vt, gb, true)
+				buf.Truncate(buf.Len() - 1)
 
-	expect.Reset()
-	fmt.Fprintf(&expect, "~~~~       %s\n", resetSeq)
-	fmt.Fprintf(&expect, "~         ~%s\n", resetSeq)
-	fmt.Fprintf(&expect, "~~~~       %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s", resetSeq)
-
-	checkResult(t, term, &expect)
-
-	d.Insert([]byte("hi"))
-
-	expect.Reset()
-	fmt.Fprintf(&expect, "~~~~       %s\n", resetSeq)
-	fmt.Fprintf(&expect, "~hi       ~%s\n", resetSeq)
-	fmt.Fprintf(&expect, "~~~~       %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s", resetSeq)
-
-	checkResult(t, term, &expect)
-
-	d.InsertNewline()
-	d.Insert([]byte("2"))
-
-	expect.Reset()
-	fmt.Fprintf(&expect, "~~~~       %s\n", resetSeq)
-	fmt.Fprintf(&expect, "~hi       ~%s\n", resetSeq)
-	fmt.Fprintf(&expect, "~2        ~%s\n", resetSeq)
-	fmt.Fprintf(&expect, "~~~~       %s\n", resetSeq)
-	fmt.Fprintf(&expect, "           %s", resetSeq)
-
-	checkResult(t, term, &expect)
+				checkResult(t, term, buf)
+			})
+		}
+	}
 
 }
 
@@ -91,6 +152,15 @@ func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {
 		fmt.Printf("expect:\n%s", hex.Dump(expect.Bytes()))
 		t.Error("buffer mismatch")
 	}
+}
+
+func setupMock(width, height int, showBorder bool) (*DisplayBox, *mock.MockTerm) {
+	term := mock.NewMock(width, height)
+	vt := vt100.New(term)
+	gb := gapbuffer.New(2)
+
+	d := New(vt, gb, showBorder)
+	return d, term
 }
 
 const resetSeq = "\x1b[0m"
