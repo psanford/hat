@@ -63,22 +63,48 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 }
 
 func (d *DisplayBox) MvLeft() {
+	d.cursorPosSanityCheck()
 	if d.cursorCoord.X > 0 {
-		posT := d.cursorPosTermSpace()
 
 		d.buf.Seek(-1, io.SeekCurrent)
 		d.cursorCoord.X--
 
-		posT.Col--
-		d.vt100.MoveToCoord(posT)
+		d.redrawCursor()
 	}
 }
 
 func (d *DisplayBox) MvRight() {
+	d.cursorPosSanityCheck()
 
 }
 
 func (d *DisplayBox) MvUp() {
+	d.cursorPosSanityCheck()
+
+	prevStart, prevEnd := d.buf.GetLine(-1)
+	if prevStart == -1 && prevEnd == -1 {
+		// we're on the first line
+		return
+	}
+	curStart, _ := d.buf.GetLine(0)
+	if curStart == prevStart {
+		// this shouldn't happen
+		panic("this should be unreachable: curStart == prevStart")
+	}
+
+	bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
+	offsetCurLine := int(bufPos) - curStart
+
+	rowWidth := prevEnd - prevStart
+	if offsetCurLine > rowWidth {
+		offsetCurLine = rowWidth
+	}
+
+	d.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
+
+	d.cursorCoord.Y--
+	d.cursorCoord.X = offsetCurLine + 1
+	d.redrawCursor()
 }
 
 func (d *DisplayBox) MvDown() {
@@ -90,7 +116,13 @@ func (d *DisplayBox) MvBOL() {
 func (d *DisplayBox) MvEOL() {
 }
 
+func (d *DisplayBox) redrawCursor() {
+	tc := d.viewPortToTermCoord(d.cursorCoord)
+	d.vt100.MoveToCoord(tc)
+}
+
 func (d *DisplayBox) InsertNewline() {
+	d.cursorPosSanityCheck()
 	var (
 		haveSpaceBelow = d.firstRowT+d.termOwnedRows < d.termSize.Row
 		haveSpaceAbove = d.firstRowT > 1
@@ -125,11 +157,11 @@ func (d *DisplayBox) InsertNewline() {
 }
 
 func (d *DisplayBox) Insert(b []byte) {
-	cursorT := d.cursorPosTermSpace()
+	d.cursorPosSanityCheck()
 	d.buf.Insert(b)
 	d.cursorCoord.X++
 
-	d.redrawLine(cursorT)
+	d.redrawLine()
 }
 
 func (d *DisplayBox) Delete() {
@@ -189,16 +221,13 @@ type viewPortCoord struct {
 	X, Y int
 }
 
-// returns the current cursor location in terminal coordinates
-func (d *DisplayBox) cursorPosTermSpace() vt100.TermCoord {
+func (d *DisplayBox) cursorPosSanityCheck() {
 	calced := d.viewPortToTermCoord(d.cursorCoord)
 
 	actualPos := d.vt100.CursorPos()
 	if actualPos != calced {
 		panic(fmt.Sprintf("cursor pos out of sync! expected:%+v but was:%+v", calced, actualPos))
 	}
-
-	return actualPos
 }
 
 func (d *DisplayBox) viewPortToTermCoord(vp *viewPortCoord) vt100.TermCoord {
@@ -211,8 +240,9 @@ func (d *DisplayBox) viewPortToTermCoord(vp *viewPortCoord) vt100.TermCoord {
 	}
 }
 
-func (d *DisplayBox) redrawLine(cursorT vt100.TermCoord) {
-	d.vt100.MoveTo(cursorT.Row, 1)
+func (d *DisplayBox) redrawLine() {
+	tc := d.viewPortToTermCoord(d.cursorCoord)
+	d.vt100.MoveTo(tc.Row, 1)
 	d.vt100.ClearToEndOfLine()
 
 	lineStart, lineEnd := d.buf.GetLine(0)
@@ -234,6 +264,5 @@ func (d *DisplayBox) redrawLine(cursorT vt100.TermCoord) {
 		}
 	}
 
-	desiredCursorLocT := d.viewPortToTermCoord(d.cursorCoord)
-	d.vt100.MoveToCoord(desiredCursorLocT)
+	d.redrawCursor()
 }

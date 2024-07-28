@@ -108,6 +108,48 @@ func TestDisplayBox(t *testing.T) {
 				"           ",
 			},
 		},
+		{
+			name: "Move up and insert '#'",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.Insert([]byte("#"))
+			},
+			expect: []string{
+				"h#i        ",
+				"@.2        ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#i      ~",
+				"~@.2      ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Move up (nop) and insert '$'",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.Insert([]byte("$"))
+			},
+			expect: []string{
+				"h#$i       ",
+				"@.2        ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~h#$i     ~",
+				"~@.2      ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
 	}
 
 	for _, border := range []bool{false, true} {
