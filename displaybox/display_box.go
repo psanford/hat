@@ -274,50 +274,32 @@ func (d *DisplayBox) Backspace() {
 }
 
 func (d *DisplayBox) Redraw() {
-	row := d.firstRowT
 
-	d.vt100.MoveTo(row, 1)
-	for i := 0; i < d.boarderTop; i++ {
-		d.vt100.Write([]byte("~~~~"))
-		row++
+	if d.boarderTop > 0 {
+		row := d.firstRowT
 		d.vt100.MoveTo(row, 1)
+		for i := 0; i < d.boarderTop; i++ {
+			d.vt100.Write([]byte("~~~~"))
+			row++
+			d.vt100.MoveTo(row, 1)
+		}
 	}
 
 	for i := 0; i < d.editableRows; i++ {
-		d.vt100.ClearToEndOfLine()
-
-		offset := i - d.cursorCoord.Y
-		bufStartLine, bufEndLine := d.buf.GetLine(offset)
-		if bufStartLine == -1 {
-			break
-		}
-		line := make([]byte, bufEndLine-bufStartLine)
-		d.buf.ReadAt(line, int64(bufStartLine))
-
-		for j := 0; j < d.boarderLeft; j++ {
-			d.vt100.Write([]byte("~"))
-		}
-
-		d.vt100.Write(line)
-
-		if d.boarderRight > 0 {
-			if len(line) < d.termSize.Col+d.boarderLeft+d.boarderRight {
-				for i := d.boarderLeft + len(line); i < d.termSize.Col-1; i++ {
-					d.vt100.Write([]byte(" "))
-				}
-				d.vt100.Write([]byte("~"))
-			}
-		}
-
-		row++
-		d.vt100.MoveTo(row, 1)
+		coord := viewPortCoord{X: 0, Y: i}
+		d.redrawLineX(&coord)
 	}
 
-	for i := 0; i < d.boarderBottom; i++ {
-		d.vt100.Write([]byte("~~~~"))
-		row++
-		if i < d.boarderBottom-1 {
-			d.vt100.MoveTo(row, 1)
+	if d.boarderBottom > 0 {
+		row := d.firstRowT + d.editableRows + 1
+		d.vt100.MoveTo(row, 1)
+
+		for i := 0; i < d.boarderBottom; i++ {
+			d.vt100.Write([]byte("~~~~"))
+			row++
+			if i < d.boarderBottom-1 {
+				d.vt100.MoveTo(row, 1)
+			}
 		}
 	}
 
@@ -361,13 +343,30 @@ func (d *DisplayBox) viewPortToTermCoord(vp *viewPortCoord) vt100.TermCoord {
 }
 
 func (d *DisplayBox) redrawLine() {
-	tc := d.viewPortToTermCoord(d.cursorCoord)
+	d.redrawLineX(d.cursorCoord)
+	d.redrawCursor()
+}
+
+func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
+
+	offset := coord.Y - d.cursorCoord.Y
+
+	tc := d.viewPortToTermCoord(coord)
+
 	d.vt100.MoveTo(tc.Row, 1)
 	d.vt100.ClearToEndOfLine()
 
-	lineStart, lineEnd := d.buf.GetLine(0)
+	lineStart, lineEnd := d.buf.GetLine(offset)
+	if lineStart == -1 {
+		if d.boarderBottom > 0 {
+			d.vt100.Write([]byte("~~~~"))
+		}
+		return
+	}
+
 	lineBuf := make([]byte, lineEnd-lineStart+1)
-	d.buf.ReadAt(lineBuf, int64(lineStart))
+	i, _ := d.buf.ReadAt(lineBuf, int64(lineStart))
+	lineBuf = lineBuf[:i]
 
 	for i := 0; i < d.boarderLeft; i++ {
 		d.vt100.Write([]byte("~"))
@@ -384,8 +383,6 @@ func (d *DisplayBox) redrawLine() {
 			d.vt100.Write([]byte("~"))
 		}
 	}
-
-	d.redrawCursor()
 }
 
 func (d *DisplayBox) DebugInfo() string {

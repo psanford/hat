@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,10 @@ import (
 	"github.com/psanford/hat/vt100"
 )
 
+var border = flag.Bool("border", false, "show border")
+
 func main() {
+	flag.Parse()
 
 	term := terminal.NewTerm(int(os.Stdin.Fd()))
 
@@ -72,7 +76,7 @@ func (ed *editor) run(ctx context.Context) {
 	ed.debugLog = debug
 	// ed.buf.Debug = debug
 
-	ed.disp = displaybox.New(ed.vt100, ed.buf, false)
+	ed.disp = displaybox.New(ed.vt100, ed.buf, *border)
 
 	prevTermCols, prevTermRows := ed.term.Size()
 

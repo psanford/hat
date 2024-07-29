@@ -647,6 +647,100 @@ func TestBackspaceAcrossLines(t *testing.T) {
 	}
 }
 
+func TestBackspaceEndOfBuffer(t *testing.T) {
+	width := 11
+	height := 6
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []struct {
+		name       string
+		action     func(d *DisplayBox)
+		expect     []string
+		withBorder []string
+	}{
+		{
+			name: "Insert abc",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("a"))
+				d.InsertNewline()
+				d.Insert([]byte("b"))
+				d.InsertNewline()
+				d.Insert([]byte("c"))
+				d.InsertNewline()
+			},
+			expect: []string{
+				"a          ",
+				"b          ",
+				"c          ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~a        ~",
+				"~b        ~",
+				"~c        ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "backspace",
+			action: func(d *DisplayBox) {
+				d.Backspace()
+			},
+			expect: []string{
+				"a          ",
+				"b          ",
+				"c          ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~a        ~",
+				"~b        ~",
+				"~c        ~",
+				"~~~~       ",
+				"~~~~       ",
+			},
+		},
+	}
+
+	for _, border := range []bool{false, true} {
+		for _, tc := range testCases {
+			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
+				db := dNoBorder
+				term := termNoBorder
+				expect := tc.expect
+
+				if border {
+					db = dBorder
+					term = termBorder
+					expect = tc.withBorder
+				}
+
+				tc.action(db)
+
+				buf := new(bytes.Buffer)
+				for _, line := range expect {
+					buf.Write([]byte(line))
+					buf.Write([]byte(resetSeq))
+					buf.Write([]byte("\n"))
+				}
+
+				buf.Truncate(buf.Len() - 1)
+
+				checkResult(t, term, buf)
+			})
+		}
+	}
+}
+
 func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {
 	t.Helper()
 	var screenBuf bytes.Buffer
