@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/psanford/hat/ansiparser"
+	"github.com/psanford/hat/displaybox"
 	"github.com/psanford/hat/gapbuffer"
 	"github.com/psanford/hat/terminal"
 	"github.com/psanford/hat/vt100"
@@ -26,11 +27,14 @@ func main() {
 type editor struct {
 	term  terminal.Terminal
 	vt100 *vt100.VT100
+	buf   *gapbuffer.GapBuffer
+	disp  *displaybox.DisplayBox
 
-	buf *gapbuffer.GapBuffer
-
-	promptLine     int // 1 indexed
-	editorRowCount int
+	// line the command executable is on
+	// e.g. $ hat
+	// 1 indexed
+	// promptLine     int
+	// editorRowCount int
 
 	parser *ansiparser.Parser
 
@@ -46,11 +50,15 @@ type editor struct {
 }
 
 func newEditor(in io.Reader, out io.Writer, err io.Writer, term terminal.Terminal) *editor {
+
+	vt := vt100.New(term)
+	gb := gapbuffer.New(2)
+
 	ed := &editor{
 		in:    in,
 		term:  term,
-		vt100: vt100.New(term),
-		buf:   gapbuffer.New(2),
+		vt100: vt,
+		buf:   gb,
 	}
 
 	return ed
@@ -64,12 +72,9 @@ func (ed *editor) run(ctx context.Context) {
 	ed.debugLog = debug
 	// ed.buf.Debug = debug
 
-	prevTermCols, prevTermRows := ed.term.Size()
-	prevRow, _ := ed.vt100.CursorPos()
-	ed.promptLine = prevRow - 1
-	lastInsertNewline := false
+	ed.disp = displaybox.New(ed.vt100, ed.buf, false)
 
-	ed.editorRowCount = prevTermRows - ed.promptLine
+	prevTermCols, prevTermRows := ed.term.Size()
 
 	ed.parser = ansiparser.New(context.Background())
 	ed.parser.SetLogger(func(s string, i ...interface{}) {
@@ -80,10 +85,6 @@ func (ed *editor) run(ctx context.Context) {
 
 MAIN_LOOP:
 	for {
-		row, col := ed.vt100.CursorPos()
-		bufPos, _ := ed.buf.Seek(0, io.SeekCurrent)
-		endBufPos := ed.buf.Size()
-
 		termCols, termRows := ed.term.Size()
 		if prevTermCols != termCols || prevTermRows != termRows {
 			fmt.Fprintf(debug, "terminal resize! oldterm:<%d, %d> newterm:<%d, %d>\n", prevTermCols, prevTermRows, termCols, termRows)
@@ -93,31 +94,8 @@ MAIN_LOOP:
 			prevTermCols, prevTermRows = termCols, termRows
 		}
 
-		if lastInsertNewline {
-			if row == prevRow { // we're at the bottom of the terminal
-				if ed.promptLine > 1 {
-					ed.promptLine--
-					ed.editorRowCount++
-					fmt.Fprintf(debug, "prompt move up 1 line to %d\n", ed.promptLine)
-				}
-			} else {
-				fmt.Fprintf(debug, "prompt at top\n")
-			}
-
-			lastInsertNewline = false
-		}
-
-		if row <= ed.promptLine {
-			fmt.Fprintf(debug, "we've fallen out of bounds! ed.promptLine=%d, row=%d\n", ed.promptLine, row)
-			// panic(fmt.Sprintf("we've fallen out of bounds! ed.promptLine=%d, row=%d", ed.promptLine, row))
-		}
-
-		prevRow = row
-
 		ed.writeDebugTerminalState()
-
-		fmt.Fprintf(debug, "loop_start row: %d, col: %d, term:<%d, %d> editorRowCount=%d bufPos: %d, bufLine:%d\n", row, col, termCols, termRows, ed.editorRowCount, bufPos, ed.getLineNumber())
-
+		fmt.Fprintln(debug, ed.disp.DebugInfo())
 		ed.readBytes()
 
 		for {
@@ -137,115 +115,35 @@ MAIN_LOOP:
 			case ansiparser.Character:
 				c := ee.Char
 				if c == 0x7F { // ASCII DEL (backspace)
-					ed.deletePrevChar()
+					ed.disp.Backspace()
 				} else if c == '\r' {
-					fmt.Fprintf(debug, "loop: is newline\n")
-					ed.buf.Insert([]byte{'\n'})
-
-					ed.vt100.Write([]byte("\r\n")) // only do this if we need to scroll?
-					ed.redrawVisible()
-
-					lastInsertNewline = true
+					ed.disp.InsertNewline()
 				} else if c == ctrlC || c == ctrlD {
 					break MAIN_LOOP
 				} else if c == ctrlA { // ctrl-a
-					lineStart, _ := ed.buf.GetLine(0)
-					ed.buf.Seek(int64(lineStart), io.SeekStart)
-					ed.vt100.MoveTo(row, 1)
+					ed.disp.MvBOL()
 				} else if c == ctrlE { // ctrl-e
-					lineStart, lineEnd := ed.buf.GetLine(0)
-
-					if lineEnd == endBufPos-1 {
-						lineEnd = endBufPos
-					}
-
-					ed.buf.Seek(int64(lineEnd), io.SeekStart)
-					ed.vt100.MoveTo(row, 1+lineEnd-lineStart)
+					ed.disp.MvEOL()
 				} else if c == ctrlL {
 					// redraw the section of the terminal we own
-					ed.redrawVisible()
-
+					ed.disp.Redraw()
 				} else {
 					fmt.Fprintf(debug, "loop: is plain char <%c>\n", c)
-					ed.buf.Insert([]byte{c})
 
-					// goto beginning of row
-					ed.vt100.MoveTo(row, 1)
-					// clear line
-					ed.vt100.ClearToEndOfLine()
-					// rewrite line
-					lineStart, lineEnd := ed.buf.GetLine(0)
-					lineBuf := make([]byte, lineEnd-lineStart+1)
-					ed.buf.ReadAt(lineBuf, int64(lineStart))
-					ed.vt100.Write(lineBuf)
-
-					// move cursor back to correct position
-					colOffset := int(bufPos) + 1 - lineStart
-					colOffset++ // inc b/c the terminal coords are 1 based
-					ed.vt100.MoveTo(row, colOffset)
+					ed.disp.Insert([]byte{c})
 				}
 			case ansiparser.DeleteCharater:
-				// del
-				ed.forwardChar()
-				ed.deletePrevChar()
+				ed.disp.Del()
 			case ansiparser.CursorMovement:
 				switch ee.Direction {
 				case ansiparser.Up:
-					prevStart, prevEnd := ed.buf.GetLine(-1)
-					if prevStart == -1 && prevEnd == -1 {
-						// we're on the first line
-						continue
-					}
-					curStart, _ := ed.buf.GetLine(0)
-					if curStart == prevStart {
-						continue
-					}
-
-					offsetCurLine := int(bufPos) - curStart
-
-					fmt.Fprintf(debug, "<UP>: pos: %d curStart: %d prevstart: %d prevEnd: %d\n", bufPos, curStart, prevStart, prevEnd)
-
-					rowWidth := prevEnd - prevStart
-					if offsetCurLine > rowWidth {
-						offsetCurLine = rowWidth
-					}
-
-					ed.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
-					ed.vt100.MoveTo(row-1, offsetCurLine+1)
+					ed.disp.MvUp()
 				case ansiparser.Down:
-					nextStart, nextEnd := ed.buf.GetLine(1)
-					if nextStart == -1 {
-						fmt.Fprintf(debug, "<DOWN>: getLine(1) Failed, we think we're at the end of the buffer\n")
-						continue
-					}
-
-					curStart, curEnd := ed.buf.GetLine(0)
-					fmt.Fprintf(debug, "<DOWN>: cur:%d curStart:%d curEnd:%d nextStart:%d nextEnd:%d\n", bufPos, curStart, curEnd, nextStart, nextEnd)
-
-					offsetCurLine := int(bufPos) - curStart
-
-					rowWidth := nextEnd - nextStart
-
-					if offsetCurLine > rowWidth {
-						offsetCurLine = rowWidth
-					}
-
-					ed.buf.Seek(int64(nextStart+offsetCurLine), io.SeekStart)
-					ed.vt100.MoveTo(row+1, offsetCurLine+1)
-
+					ed.disp.MvDown()
 				case ansiparser.Forward:
-					ed.forwardChar()
+					ed.disp.MvRight()
 				case ansiparser.Backward:
-					startLine, _ := ed.buf.GetLine(0)
-					if bufPos == 0 {
-						// we're at the beginning of the buffer
-					} else {
-						if bufPos > int64(startLine) {
-							fmt.Fprintf(ed.debugLog, "LEFT: just left 1 (to: %d, %d)\n", row, col-1)
-							ed.buf.Seek(-1, io.SeekCurrent)
-							ed.vt100.MoveTo(row, col-1)
-						}
-					}
+					ed.disp.MvLeft()
 				}
 			default:
 				fmt.Fprintf(debug, "unhandled event: %T %v\n", e, e)
@@ -275,7 +173,7 @@ MAIN_LOOP:
 
 func (ed *editor) writeDebugTerminalState() {
 	termCols, termRows := ed.term.Size()
-	curRow, curCol := ed.vt100.CursorPos()
+	coord := ed.vt100.CursorPos()
 
 	f, err := os.Create("/tmp/hat.current.terminal")
 	if err != nil {
@@ -284,10 +182,10 @@ func (ed *editor) writeDebugTerminalState() {
 	defer f.Close()
 
 	fmt.Fprintln(f, strings.Repeat("@", termCols))
-	fmt.Fprintf(f, "@@ w:%d h:%d cur_row:%d cur_col:%d prompt_line:%d @@\n", termCols, termRows, curRow, curCol, ed.promptLine)
+	fmt.Fprintf(f, "@@ w:%d h:%d cur_row:%d cur_col:%d @@\n", termCols, termRows, coord.Row, coord.Col)
 
 	for row := 1; row <= termRows; row++ {
-		bufRowOffset := row - curRow
+		bufRowOffset := row - coord.Row
 		startLine, endLine := ed.buf.GetLine(bufRowOffset)
 
 		if startLine < 0 && endLine < 0 {
@@ -299,7 +197,7 @@ func (ed *editor) writeDebugTerminalState() {
 		ed.buf.ReadAt(lineText, int64(startLine))
 
 		for col := 1; col <= termCols; col++ {
-			if row == curRow && col == curCol {
+			if row == coord.Row && col == coord.Col {
 				f.Write([]byte("_"))
 				continue
 			}
@@ -319,89 +217,9 @@ func (ed *editor) writeDebugTerminalState() {
 	}
 }
 
-// redrawVisible redraws the current editor viewport.
-// The editor viewport is the number of lines we've used so far in the terminal.
-func (ed *editor) redrawVisible() {
-	cursorRow, _ := ed.vt100.CursorPos()
-	_, termRows := ed.term.Size()
-
-	ed.vt100.SaveCursorPos()
-
-	editorStartRow := termRows + 1 - ed.editorRowCount
-	fmt.Fprintf(ed.debugLog, "!!! redrawVisible: start_row=%d cursor_row=%d row_count=%d  term_rows=%d\n", editorStartRow, cursorRow, ed.editorRowCount, termRows)
-
-	for row := editorStartRow; row < editorStartRow+ed.editorRowCount; row++ {
-		offset := row - cursorRow
-		ed.vt100.MoveTo(row, 1)
-		ed.vt100.ClearToEndOfLine()
-		bufStartLine, bufEndLine := ed.buf.GetLine(offset)
-		fmt.Fprintf(ed.debugLog, "!!! redrawVisible: row=%d offset=%d bufstart=%d bufend=%d size=%d start=%d\n", row, offset, bufStartLine, bufEndLine, bufEndLine+1-bufStartLine, bufStartLine)
-		fmt.Fprintf(ed.debugLog, "!!! info=%s\n", ed.buf.DebugInfo())
-		if bufStartLine == -1 {
-			fmt.Fprintf(ed.debugLog, "row=%d empty line\n", row)
-			continue
-		}
-
-		line := make([]byte, bufEndLine+1-bufStartLine)
-		ed.buf.ReadAt(line, int64(bufStartLine))
-		fmt.Fprintf(ed.debugLog, "!!! redrawVisible: write_line=<%s>\n", line)
-		ed.vt100.Write(line)
-	}
-
-	ed.vt100.RestoreCursorPos()
-}
-
-func (ed *editor) forwardChar() {
-	bufPos, _ := ed.buf.Seek(0, io.SeekCurrent)
-	endBufPos := ed.buf.Size()
-	row, col := ed.vt100.CursorPos()
-
-	// if we're at the very end of the file our cursor should be at lastpos+1
-	_, eolPos := ed.buf.GetLine(0)
-	fmt.Fprintf(ed.debugLog, "right: bufPos=%d  eolPos=%d endBufPos=%d", bufPos, eolPos, endBufPos)
-	if eolPos == endBufPos-1 {
-		eolPos = endBufPos
-	}
-	if bufPos == int64(eolPos) {
-		fmt.Fprintf(ed.debugLog, "RIGHT STOPPED: at end of buffer bufPos=%d\n", bufPos)
-		return
-	}
-	newPos, _ := ed.buf.Seek(1, io.SeekCurrent)
-	fmt.Fprintf(ed.debugLog, "request RIGHT: bufPos=%d, newPos=%d eolPos=%d endPos=%d\n", bufPos, newPos, eolPos, endBufPos)
-	ed.vt100.MoveTo(row, col+1)
-}
-
-func (ed *editor) deletePrevChar() {
-	bufPos, _ := ed.buf.Seek(0, io.SeekCurrent)
-	row, _ := ed.vt100.CursorPos()
-
-	deleted := ed.buf.Delete(1)
-	if len(deleted) > 0 && deleted[0] == '\n' {
-		// we've deleted the previous newline. We need to redraw the previous lines and all following lines
-		lineStart, _ := ed.buf.GetLine(0)
-		lineOffset := bufPos - int64(lineStart)
-		ed.vt100.MoveTo(row-1, int(lineOffset))
-		ed.redrawVisible()
-		return
-	}
-	// goto beginning of row
-	ed.vt100.MoveTo(row, 1)
-	// clear line
-	ed.vt100.ClearToEndOfLine()
-	// rewrite line
-	lineStart, lineEnd := ed.buf.GetLine(0)
-	lineBuf := make([]byte, lineEnd-lineStart+1)
-	ed.buf.ReadAt(lineBuf, int64(lineStart))
-	ed.vt100.Write(lineBuf)
-
-	// move cursor back to correct position
-	colOffset := int(bufPos) + -1 - lineStart
-	colOffset++ // inc b/c the terminal coords are 1 based
-	ed.vt100.MoveTo(row, colOffset)
-}
-
 func (ed *editor) cursorPos() (row, col int) {
-	return ed.vt100.CursorPos()
+	coord := ed.vt100.CursorPos()
+	return coord.Row, coord.Col
 }
 
 func (ed *editor) readChar() (byte, error) {
@@ -455,31 +273,4 @@ func ctrlKey(c byte) byte {
 
 func bail(err error) {
 	panic(err)
-}
-
-func (ed *editor) getLineNumber() int {
-	startPos, _ := ed.buf.Seek(0, io.SeekCurrent)
-	var count int
-	prev := -1
-	for {
-		curStart, _ := ed.buf.GetLine(0)
-		if curStart == 0 {
-			break
-		}
-		if curStart == prev {
-			fmt.Printf("%s\n", ed.buf.DebugInfo())
-			panic("Failed to seek")
-		}
-		prev = curStart
-
-		ed.buf.Seek(int64(curStart-1), io.SeekStart)
-		count++
-	}
-
-	endPos, _ := ed.buf.Seek(startPos, io.SeekStart)
-	if startPos != endPos {
-		panic(fmt.Sprintf("getLineNumber: %d %d\n", startPos, endPos))
-	}
-
-	return count
 }

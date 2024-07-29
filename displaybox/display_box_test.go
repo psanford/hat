@@ -16,7 +16,7 @@ func TestDisplayBox(t *testing.T) {
 	height := 5
 
 	dNoBorder, termNoBorder := setupMock(width, height, false)
-	dBorder, termBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
 
 	testCases := []struct {
 		name       string
@@ -25,8 +25,10 @@ func TestDisplayBox(t *testing.T) {
 		withBorder []string
 	}{
 		{
-			name:   "Insert 'hi'",
-			action: func(d *DisplayBox) { d.Insert([]byte("hi")) },
+			name: "Insert 'hi'",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("hi"))
+			},
 			expect: []string{
 				"hi         ",
 				"           ",
@@ -36,7 +38,7 @@ func TestDisplayBox(t *testing.T) {
 			},
 			withBorder: []string{
 				"~~~~       ",
-				"~ hi      ~",
+				"~hi       ~",
 				"~~~~       ",
 				"           ",
 				"           ",
@@ -262,16 +264,18 @@ func TestDisplayBox(t *testing.T) {
 			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
 				db := dNoBorder
 				term := termNoBorder
+				expect := tc.expect
 
 				if border {
 					db = dBorder
 					term = termBorder
+					expect = tc.withBorder
 				}
 
 				tc.action(db)
 
 				buf := new(bytes.Buffer)
-				for _, line := range tc.expect {
+				for _, line := range expect {
 					buf.Write([]byte(line))
 					buf.Write([]byte(resetSeq))
 					buf.Write([]byte("\n"))
@@ -283,7 +287,231 @@ func TestDisplayBox(t *testing.T) {
 			})
 		}
 	}
+}
 
+func TestMoveUp(t *testing.T) {
+	width := 11
+	height := 5
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []struct {
+		name       string
+		action     func(d *DisplayBox)
+		expect     []string
+		withBorder []string
+	}{
+		{
+			name: "Insert abcd",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("abcd"))
+			},
+			expect: []string{
+				"abcd       ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~abcd     ~",
+				"~~~~       ",
+				"           ",
+				"           ",
+			},
+		},
+		{
+			name: "Insert new line",
+			action: func(d *DisplayBox) {
+				d.InsertNewline()
+			},
+			expect: []string{
+				"abcd       ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~abcd     ~",
+				"~         ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "MvUp, insert 1",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.Insert([]byte("1"))
+			},
+			expect: []string{
+				"1abcd      ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~1abcd    ~",
+				"~         ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+	}
+
+	for _, border := range []bool{false, true} {
+		for _, tc := range testCases {
+			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
+				db := dNoBorder
+				term := termNoBorder
+				expect := tc.expect
+
+				if border {
+					db = dBorder
+					term = termBorder
+					expect = tc.withBorder
+				}
+
+				tc.action(db)
+
+				buf := new(bytes.Buffer)
+				for _, line := range expect {
+					buf.Write([]byte(line))
+					buf.Write([]byte(resetSeq))
+					buf.Write([]byte("\n"))
+				}
+
+				buf.Truncate(buf.Len() - 1)
+
+				checkResult(t, term, buf)
+			})
+		}
+	}
+}
+
+func TestBolEol(t *testing.T) {
+	width := 11
+	height := 5
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []struct {
+		name       string
+		action     func(d *DisplayBox)
+		expect     []string
+		withBorder []string
+	}{
+		{
+			name: "Insert abcd",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("abcd"))
+				d.InsertNewline()
+				d.Insert([]byte("1234"))
+			},
+			expect: []string{
+				"abcd       ",
+				"1234       ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~abcd     ~",
+				"~1234     ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "EOL, insert 5, BOL, insert 6, EOL, insert 7",
+			action: func(d *DisplayBox) {
+				d.MvEOL()
+				d.Insert([]byte("5"))
+				d.MvBOL()
+				d.Insert([]byte("6"))
+				d.MvEOL()
+				d.Insert([]byte("7"))
+			},
+			expect: []string{
+				"abcd       ",
+				"6123457    ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~abcd     ~",
+				"~6123457  ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "MvUp, insert f, EOL, insert g, BOL, insert h, EOL, insert i",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.Insert([]byte("f"))
+				d.MvEOL()
+				d.Insert([]byte("g"))
+				d.MvBOL()
+				d.Insert([]byte("h"))
+				d.MvEOL()
+				d.Insert([]byte("i"))
+			},
+			expect: []string{
+				"habcdfgi   ",
+				"6123457    ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~habcdfgi ~",
+				"~6123457  ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+	}
+
+	for _, border := range []bool{false, true} {
+		for _, tc := range testCases {
+			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
+				db := dNoBorder
+				term := termNoBorder
+				expect := tc.expect
+
+				if border {
+					db = dBorder
+					term = termBorder
+					expect = tc.withBorder
+				}
+
+				tc.action(db)
+
+				buf := new(bytes.Buffer)
+				for _, line := range expect {
+					buf.Write([]byte(line))
+					buf.Write([]byte(resetSeq))
+					buf.Write([]byte("\n"))
+				}
+
+				buf.Truncate(buf.Len() - 1)
+
+				checkResult(t, term, buf)
+			})
+		}
+	}
 }
 
 func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {

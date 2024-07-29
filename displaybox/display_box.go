@@ -1,6 +1,7 @@
 package displaybox
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -121,7 +122,7 @@ func (d *DisplayBox) MvUp() {
 	d.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
 
 	d.cursorCoord.Y--
-	d.cursorCoord.X = offsetCurLine + 1
+	d.cursorCoord.X = offsetCurLine
 	d.redrawCursor()
 }
 
@@ -151,14 +152,34 @@ func (d *DisplayBox) MvDown() {
 	}
 
 	d.cursorCoord.Y++
-	d.cursorCoord.X = offsetCurLine + 1
+	d.cursorCoord.X = offsetCurLine
 	d.redrawCursor()
 }
 
 func (d *DisplayBox) MvBOL() {
+	d.cursorPosSanityCheck()
+
+	lineStart, _ := d.buf.GetLine(0)
+
+	d.buf.Seek(int64(lineStart), io.SeekStart)
+	d.cursorCoord.X = 0
+	d.redrawCursor()
 }
 
 func (d *DisplayBox) MvEOL() {
+	d.cursorPosSanityCheck()
+
+	lineStart, lineEnd := d.buf.GetLine(0)
+	endBufPos := d.buf.Size()
+
+	if lineEnd == endBufPos-1 {
+		lineEnd = endBufPos
+	}
+
+	d.buf.Seek(int64(lineEnd), io.SeekStart)
+
+	d.cursorCoord.X = lineEnd - lineStart
+	d.redrawCursor()
 }
 
 func (d *DisplayBox) redrawCursor() {
@@ -204,7 +225,7 @@ func (d *DisplayBox) InsertNewline() {
 func (d *DisplayBox) Insert(b []byte) {
 	d.cursorPosSanityCheck()
 	d.buf.Insert(b)
-	d.cursorCoord.X++
+	d.cursorCoord.X += len(b)
 
 	d.redrawLine()
 }
@@ -261,6 +282,9 @@ func (d *DisplayBox) Redraw() {
 
 		offset := i - d.cursorCoord.Y
 		bufStartLine, bufEndLine := d.buf.GetLine(offset)
+		if bufStartLine == -1 {
+			break
+		}
 		line := make([]byte, bufEndLine-bufStartLine)
 		d.buf.ReadAt(line, int64(bufStartLine))
 
@@ -299,6 +323,15 @@ type viewPortCoord struct {
 }
 
 func (d *DisplayBox) cursorPosSanityCheck() {
+
+	startLine, _ := d.buf.GetLine(0)
+	bufOffset, _ := d.buf.Seek(0, io.SeekCurrent)
+
+	lineOffset := int(bufOffset) - startLine
+	if lineOffset != d.cursorCoord.X {
+		panic(fmt.Sprintf("cursor pos out of sync with buf: cursorX=%d buf=%d", d.cursorCoord.X, lineOffset))
+	}
+
 	calced := d.viewPortToTermCoord(d.cursorCoord)
 
 	actualPos := d.vt100.CursorPos()
@@ -334,6 +367,7 @@ func (d *DisplayBox) redrawLine() {
 		d.vt100.Write([]byte("~"))
 	}
 
+	lineBuf = bytes.TrimRight(lineBuf, "\r\n")
 	d.vt100.Write(lineBuf)
 
 	if d.boarderRight > 0 {
@@ -346,4 +380,20 @@ func (d *DisplayBox) redrawLine() {
 	}
 
 	d.redrawCursor()
+}
+
+func (d *DisplayBox) DebugInfo() string {
+
+	startLine, _ := d.buf.GetLine(0)
+	bufOffset, _ := d.buf.Seek(0, io.SeekCurrent)
+	lineOffset := int(bufOffset) - startLine
+
+	return fmt.Sprintf(`DisplayBox:
+editableRows=%d
+termOwnedRows=%d
+firstRowT=%d
+bufOffsetX=%d
+cursorX=%d
+cursorY=%d`, d.editableRows, d.termOwnedRows, d.firstRowT, lineOffset, d.cursorCoord.X, d.cursorCoord.Y)
+
 }
