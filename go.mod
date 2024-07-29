@@ -20,4 +20,4 @@ require (
 	github.com/rivo/uniseg v0.4.4 // indirect
 )
 
-replace github.com/Azure/go-ansiterm => /home/psanford/projects/thirdparty/go-ansiterm
+replace github.com/Azure/go-ansiterm => github.com/psanford/go-ansiterm v0.0.0-20240729051413-7b84f1edf5ba
