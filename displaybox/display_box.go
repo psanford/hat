@@ -185,12 +185,13 @@ func (d *DisplayBox) MvEOL() {
 func (d *DisplayBox) redrawCursor() {
 	tc := d.viewPortToTermCoord(d.cursorCoord)
 	d.vt100.MoveToCoord(tc)
+	d.cursorPosSanityCheck()
 }
 
 func (d *DisplayBox) InsertNewline() {
 	d.cursorPosSanityCheck()
 	var (
-		haveSpaceBelow = d.firstRowT+d.termOwnedRows < d.termSize.Row
+		haveSpaceBelow = d.firstRowT+d.termOwnedRows <= d.termSize.Row
 		haveSpaceAbove = d.firstRowT > 1
 	)
 
@@ -249,15 +250,20 @@ func (d *DisplayBox) Del() {
 func (d *DisplayBox) Backspace() {
 	d.cursorPosSanityCheck()
 
-	bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
-
 	deleted := d.buf.Delete(1)
-	if len(deleted) > 0 && deleted[0] == '\n' {
+
+	if len(deleted) < 1 {
+		return
+	}
+
+	if deleted[0] == '\n' {
 		// we've deleted the previous newline. We need to redraw the previous lines and all following lines
 
 		lineStart, _ := d.buf.GetLine(0)
+		bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
 		lineOffset := bufPos - int64(lineStart)
 		d.cursorCoord.Y--
+
 		d.cursorCoord.X = int(lineOffset)
 		d.Redraw()
 		return
