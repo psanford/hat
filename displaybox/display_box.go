@@ -200,13 +200,27 @@ func (d *DisplayBox) redrawCursor() {
 func (d *DisplayBox) InsertNewline() {
 	d.cursorPosSanityCheck()
 	var (
-		haveSpaceBelow = d.firstRowT+d.termOwnedRows <= d.termSize.Row
-		haveSpaceAbove = d.firstRowT > 1
+		haveSpaceBelow      = d.firstRowT+d.termOwnedRows <= d.termSize.Row
+		haveSpaceAbove      = d.firstRowT > 1
+		editableRowsForward = d.editableRows - d.cursorCoord.Y - 1
+
+		hasUnusedEitableRow bool
 	)
+
+	if editableRowsForward > 0 {
+		startPos, _ := d.buf.GetLine(editableRowsForward)
+		if startPos == -1 {
+			hasUnusedEitableRow = true
+		}
+	}
 
 	d.buf.Insert([]byte{'\n'})
 
-	if haveSpaceBelow {
+	if hasUnusedEitableRow {
+		d.cursorCoord.X = 0
+		d.cursorCoord.Y++
+		d.Redraw()
+	} else if haveSpaceBelow {
 		// we can grow downward
 		d.editableRows++
 		d.termOwnedRows++

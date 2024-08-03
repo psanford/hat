@@ -764,6 +764,73 @@ func TestStartAtBottom(t *testing.T) {
 				"~~~~       ",
 			},
 		},
+		{
+			name: "Insert newline",
+			action: func(d *DisplayBox) {
+				d.InsertNewline()
+				d.InsertNewline()
+			},
+			expect: []string{
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"a          ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~         ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "backspace",
+			action: func(d *DisplayBox) {
+				d.Backspace()
+			},
+			expect: []string{
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"a          ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~         ~",
+				"~~~~       ",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "insert newline",
+			action: func(d *DisplayBox) {
+				d.InsertNewline()
+			},
+			expect: []string{
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"a          ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~         ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
 	}
 
 	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
