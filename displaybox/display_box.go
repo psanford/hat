@@ -48,6 +48,15 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 		d.boarderRight = 1
 		d.boarderBottom = 1
 		d.termOwnedRows = 3
+
+		if d.firstRowT > d.termSize.Row-2 {
+			// if we are at the bottom, we need to account for inserting the boarders
+			// in firstRowT
+			for i := d.firstRowT; i > d.termSize.Row-2; i-- {
+				d.firstRowT--
+			}
+		}
+
 		d.vt100.Write([]byte("~~~~"))
 		d.vt100.Write([]byte("\r\n"))
 		d.vt100.Write([]byte("~"))

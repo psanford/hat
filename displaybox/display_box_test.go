@@ -11,6 +11,13 @@ import (
 	"github.com/psanford/hat/vt100"
 )
 
+type TestCase struct {
+	name       string
+	action     func(d *DisplayBox)
+	expect     []string
+	withBorder []string
+}
+
 func TestDisplayBox(t *testing.T) {
 	width := 11
 	height := 5
@@ -18,12 +25,7 @@ func TestDisplayBox(t *testing.T) {
 	dNoBorder, termNoBorder := setupMock(width, height, false)
 	dBorder, termBorder := setupMock(width, height, true)
 
-	testCases := []struct {
-		name       string
-		action     func(d *DisplayBox)
-		expect     []string
-		withBorder []string
-	}{
+	testCases := []TestCase{
 		{
 			name: "Insert 'hi'",
 			action: func(d *DisplayBox) {
@@ -259,34 +261,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 	}
 
-	for _, border := range []bool{false, true} {
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
-				db := dNoBorder
-				term := termNoBorder
-				expect := tc.expect
-
-				if border {
-					db = dBorder
-					term = termBorder
-					expect = tc.withBorder
-				}
-
-				tc.action(db)
-
-				buf := new(bytes.Buffer)
-				for _, line := range expect {
-					buf.Write([]byte(line))
-					buf.Write([]byte(resetSeq))
-					buf.Write([]byte("\n"))
-				}
-
-				buf.Truncate(buf.Len() - 1)
-
-				checkResult(t, term, buf)
-			})
-		}
-	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
 func TestMoveUp(t *testing.T) {
@@ -296,12 +271,7 @@ func TestMoveUp(t *testing.T) {
 	dNoBorder, termNoBorder := setupMock(width, height, false)
 	dBorder, termBorder := setupMock(width, height, true)
 
-	testCases := []struct {
-		name       string
-		action     func(d *DisplayBox)
-		expect     []string
-		withBorder []string
-	}{
+	testCases := []TestCase{
 		{
 			name: "Insert abcd",
 			action: func(d *DisplayBox) {
@@ -402,12 +372,7 @@ func TestBolEol(t *testing.T) {
 	dNoBorder, termNoBorder := setupMock(width, height, false)
 	dBorder, termBorder := setupMock(width, height, true)
 
-	testCases := []struct {
-		name       string
-		action     func(d *DisplayBox)
-		expect     []string
-		withBorder []string
-	}{
+	testCases := []TestCase{
 		{
 			name: "Insert abcd",
 			action: func(d *DisplayBox) {
@@ -521,12 +486,7 @@ func TestBackspaceAcrossLines(t *testing.T) {
 	dNoBorder, termNoBorder := setupMock(width, height, false)
 	dBorder, termBorder := setupMock(width, height, true)
 
-	testCases := []struct {
-		name       string
-		action     func(d *DisplayBox)
-		expect     []string
-		withBorder []string
-	}{
+	testCases := []TestCase{
 		{
 			name: "Insert abc",
 			action: func(d *DisplayBox) {
@@ -617,34 +577,7 @@ func TestBackspaceAcrossLines(t *testing.T) {
 		},
 	}
 
-	for _, border := range []bool{false, true} {
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
-				db := dNoBorder
-				term := termNoBorder
-				expect := tc.expect
-
-				if border {
-					db = dBorder
-					term = termBorder
-					expect = tc.withBorder
-				}
-
-				tc.action(db)
-
-				buf := new(bytes.Buffer)
-				for _, line := range expect {
-					buf.Write([]byte(line))
-					buf.Write([]byte(resetSeq))
-					buf.Write([]byte("\n"))
-				}
-
-				buf.Truncate(buf.Len() - 1)
-
-				checkResult(t, term, buf)
-			})
-		}
-	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
 func TestBackspaceEndOfBuffer(t *testing.T) {
@@ -654,12 +587,7 @@ func TestBackspaceEndOfBuffer(t *testing.T) {
 	dNoBorder, termNoBorder := setupMock(width, height, false)
 	dBorder, termBorder := setupMock(width, height, true)
 
-	testCases := []struct {
-		name       string
-		action     func(d *DisplayBox)
-		expect     []string
-		withBorder []string
-	}{
+	testCases := []TestCase{
 		{
 			name: "Insert abc",
 			action: func(d *DisplayBox) {
@@ -711,34 +639,7 @@ func TestBackspaceEndOfBuffer(t *testing.T) {
 		},
 	}
 
-	for _, border := range []bool{false, true} {
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
-				db := dNoBorder
-				term := termNoBorder
-				expect := tc.expect
-
-				if border {
-					db = dBorder
-					term = termBorder
-					expect = tc.withBorder
-				}
-
-				tc.action(db)
-
-				buf := new(bytes.Buffer)
-				for _, line := range expect {
-					buf.Write([]byte(line))
-					buf.Write([]byte(resetSeq))
-					buf.Write([]byte("\n"))
-				}
-
-				buf.Truncate(buf.Len() - 1)
-
-				checkResult(t, term, buf)
-			})
-		}
-	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
 func TestPartialTermScrollUp(t *testing.T) {
@@ -749,12 +650,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 	dNoBorder, termNoBorder := setupMockPartialTerm(width, height, otherAppRows, false)
 	dBorder, termBorder := setupMockPartialTerm(width, height+2, otherAppRows, true)
 
-	testCases := []struct {
-		name       string
-		action     func(d *DisplayBox)
-		expect     []string
-		withBorder []string
-	}{
+	testCases := []TestCase{
 		{
 			name: "Insert abc",
 			action: func(d *DisplayBox) {
@@ -834,8 +730,50 @@ func TestPartialTermScrollUp(t *testing.T) {
 		},
 	}
 
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
+func TestStartAtBottom(t *testing.T) {
+	width := 11
+	height := 6
+	otherAppRows := 5
+
+	dNoBorder, termNoBorder := setupMockPartialTerm(width, height, otherAppRows, false)
+	dBorder, termBorder := setupMockPartialTerm(width, height, otherAppRows, true)
+
+	testCases := []TestCase{
+		{
+			name: "Insert a",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("a"))
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"a          ",
+			},
+			withBorder: []string{
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~~~~       ",
+			},
+		},
+	}
+
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
+func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, termNoBorder, termBorder *mock.MockTerm) {
+	t.Helper()
+
 	for _, border := range []bool{false, true} {
-		for _, tc := range testCases {
+		for _, tc := range tc {
 			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
 				db := dNoBorder
 				term := termNoBorder
@@ -862,6 +800,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 			})
 		}
 	}
+
 }
 
 func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {
