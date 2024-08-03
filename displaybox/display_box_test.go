@@ -979,6 +979,155 @@ func TestOverflowTopBottom(t *testing.T) {
 	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
+func TestOverflowRight(t *testing.T) {
+	width := 11
+	height := 4
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width+2, height, true)
+
+	testCases := []TestCase{
+		{
+			name: "Fill screen",
+			action: func(d *DisplayBox) {
+				for i := 'a'; i < 'a'+rune(width)+2; i++ {
+					d.Insert([]byte(string([]rune{i})))
+				}
+			},
+			expect: []string{
+				"defghijklm ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"<defghijklm ~",
+				"~~~~         ",
+				"             ",
+			},
+		},
+		{
+			name: "Scroll left by two chars",
+			action: func(d *DisplayBox) {
+				for i := 'a'; i < 'a'+rune(width); i++ {
+					d.MvLeft()
+				}
+			},
+			expect: []string{
+				"cdefghijkl ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"<cdefghijkl >",
+				"~~~~         ",
+				"             ",
+			},
+		},
+		{
+			name: "Mv right (no scroll) and insert",
+			action: func(d *DisplayBox) {
+				d.MvRight()
+				d.Insert([]byte("!"))
+			},
+			expect: []string{
+				"c!defghijk ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"<c!defghijk >",
+				"~~~~         ",
+				"             ",
+			},
+		},
+		{
+			name: "Scroll left full",
+			action: func(d *DisplayBox) {
+				d.MvLeft()
+				d.MvLeft()
+				d.MvLeft()
+				d.MvLeft()
+			},
+			expect: []string{
+				"abc!defghi ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"~abc!defghi >",
+				"~~~~         ",
+				"             ",
+			},
+		},
+		{
+			name: "eol",
+			action: func(d *DisplayBox) {
+				d.MvEOL()
+			},
+			expect: []string{
+				"defghijklm ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"<defghijklm ~",
+				"~~~~         ",
+				"             ",
+			},
+		},
+		{
+			name: "bol",
+			action: func(d *DisplayBox) {
+				d.MvBOL()
+			},
+			expect: []string{
+				"abc!defghi ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"~abc!defghi >",
+				"~~~~         ",
+				"             ",
+			},
+		},
+		{
+			name: "right two, newline",
+			action: func(d *DisplayBox) {
+				d.MvRight()
+				d.MvRight()
+				d.InsertNewline()
+			},
+			expect: []string{
+				"ab         ",
+				"c!defghijk ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~         ",
+				"~ab         ~",
+				"~c!defghijk >",
+				"~~~~         ",
+			},
+		},
+	}
+
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
 func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, termNoBorder, termBorder *mock.MockTerm) {
 	t.Helper()
 

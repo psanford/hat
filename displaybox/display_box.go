@@ -13,13 +13,13 @@ type DisplayBox struct {
 	editableRows  int
 	termOwnedRows int
 
-	vt100         *vt100.VT100
-	boarderTop    int
-	boarderLeft   int
-	boarderRight  int
-	boarderBottom int
-	addBorder     bool
-	buf           *gapbuffer.GapBuffer
+	vt100        *vt100.VT100
+	borderTop    int
+	borderLeft   int
+	borderRight  int
+	borderBottom int
+	addBorder    bool
+	buf          *gapbuffer.GapBuffer
 
 	termSize  vt100.TermCoord
 	firstRowT int
@@ -43,14 +43,14 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 	}
 
 	if addBorder {
-		d.boarderTop = 1
-		d.boarderLeft = 1
-		d.boarderRight = 1
-		d.boarderBottom = 1
+		d.borderTop = 1
+		d.borderLeft = 1
+		d.borderRight = 1
+		d.borderBottom = 1
 		d.termOwnedRows = 3
 
 		if d.firstRowT > d.termSize.Row-2 {
-			// if we are at the bottom, we need to account for inserting the boarders
+			// if we are at the bottom, we need to account for inserting the borders
 			// in firstRowT
 			for i := d.firstRowT; i > d.termSize.Row-2; i-- {
 				d.firstRowT--
@@ -74,12 +74,20 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 
 func (d *DisplayBox) MvLeft() {
 	d.cursorPosSanityCheck()
+
+	startPos, _ := d.buf.GetLine(0)
+	curPos, _ := d.buf.Seek(0, io.SeekCurrent)
+	if curPos == int64(startPos) {
+		return
+	}
+	d.buf.Seek(-1, io.SeekCurrent)
+
 	if d.cursorCoord.X > 0 {
-
-		d.buf.Seek(-1, io.SeekCurrent)
 		d.cursorCoord.X--
-
 		d.redrawCursor()
+	} else {
+		// scroll line left
+		d.redrawLine()
 	}
 }
 
@@ -102,8 +110,17 @@ func (d *DisplayBox) MvRight() {
 		panic(fmt.Sprintf("MvRight seek forward unexepected error: %s", err))
 	}
 
-	d.cursorCoord.X++
-	d.redrawCursor()
+	if d.cursorCoord.X < d.viewPortWidth()-1 {
+		d.cursorCoord.X++
+		d.redrawCursor()
+	} else {
+		// scroll line right
+		d.redrawLine()
+	}
+}
+
+func (d *DisplayBox) viewPortWidth() int {
+	return d.termSize.Col - d.borderLeft - d.borderRight
 }
 
 func (d *DisplayBox) MvUp() {
@@ -180,7 +197,7 @@ func (d *DisplayBox) MvBOL() {
 
 	d.buf.Seek(int64(lineStart), io.SeekStart)
 	d.cursorCoord.X = 0
-	d.redrawCursor()
+	d.redrawLine()
 }
 
 func (d *DisplayBox) MvEOL() {
@@ -196,7 +213,10 @@ func (d *DisplayBox) MvEOL() {
 	d.buf.Seek(int64(lineEnd), io.SeekStart)
 
 	d.cursorCoord.X = lineEnd - lineStart
-	d.redrawCursor()
+	if d.cursorCoord.X >= d.viewPortWidth() {
+		d.cursorCoord.X = d.viewPortWidth() - 1
+	}
+	d.redrawLine()
 }
 
 func (d *DisplayBox) redrawCursor() {
@@ -255,11 +275,15 @@ func (d *DisplayBox) InsertNewline() {
 }
 
 func (d *DisplayBox) Insert(b []byte) {
-	d.cursorPosSanityCheck()
-	d.buf.Insert(b)
 	// PMS: this is not correct for unicode characters
 	// we probably should also checke that b is printable
-	d.cursorCoord.X += len(b)
+
+	d.cursorPosSanityCheck()
+	d.buf.Insert(b)
+
+	if d.cursorCoord.X < d.viewPortWidth()-1 {
+		d.cursorCoord.X += len(b)
+	}
 
 	d.redrawLine()
 }
@@ -308,7 +332,7 @@ func (d *DisplayBox) Backspace() {
 
 func (d *DisplayBox) Redraw() {
 
-	if d.boarderTop > 0 {
+	if d.borderTop > 0 {
 		var borderTop = []byte("~~~~")
 
 		startPos, _ := d.buf.GetLine((-1 * d.cursorCoord.Y) - 1)
@@ -319,7 +343,7 @@ func (d *DisplayBox) Redraw() {
 
 		row := d.firstRowT
 		d.vt100.MoveTo(row, 1)
-		for i := 0; i < d.boarderTop; i++ {
+		for i := 0; i < d.borderTop; i++ {
 			d.vt100.ClearToEndOfLine()
 			d.vt100.Write(borderTop)
 			row++
@@ -332,7 +356,7 @@ func (d *DisplayBox) Redraw() {
 		d.redrawLineX(&coord)
 	}
 
-	if d.boarderBottom > 0 {
+	if d.borderBottom > 0 {
 		var borderBottom = []byte("~~~~")
 
 		editableRowsForward := d.editableRows - d.cursorCoord.Y
@@ -348,10 +372,10 @@ func (d *DisplayBox) Redraw() {
 		row := d.firstRowT + d.editableRows + 1
 		d.vt100.MoveTo(row, 1)
 
-		for i := 0; i < d.boarderBottom; i++ {
+		for i := 0; i < d.borderBottom; i++ {
 			d.vt100.Write(borderBottom)
 			row++
-			if i < d.boarderBottom-1 {
+			if i < d.borderBottom-1 {
 				d.vt100.MoveTo(row, 1)
 			}
 		}
@@ -366,11 +390,13 @@ type viewPortCoord struct {
 
 func (d *DisplayBox) cursorPosSanityCheck() {
 
-	startLine, _ := d.buf.GetLine(0)
+	startLine, endLine := d.buf.GetLine(0)
 	bufOffset, _ := d.buf.Seek(0, io.SeekCurrent)
 
+	lineSize := endLine - startLine
+
 	lineOffset := int(bufOffset) - startLine
-	if lineOffset != d.cursorCoord.X {
+	if lineOffset != d.cursorCoord.X && lineSize < d.viewPortWidth()-1 {
 		panic(fmt.Sprintf("cursor pos out of sync with buf: cursorX=%d buf=%d", d.cursorCoord.X, lineOffset))
 	}
 
@@ -387,8 +413,8 @@ func (d *DisplayBox) cursorPosSanityCheck() {
 }
 
 func (d *DisplayBox) viewPortToTermCoord(vp *viewPortCoord) vt100.TermCoord {
-	colT := vp.X + d.boarderLeft + 1
-	rowT := vp.Y + d.firstRowT + d.boarderTop
+	colT := vp.X + d.borderLeft + 1
+	rowT := vp.Y + d.firstRowT + d.borderTop
 
 	return vt100.TermCoord{
 		Col: colT,
@@ -402,7 +428,6 @@ func (d *DisplayBox) redrawLine() {
 }
 
 func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
-
 	offset := coord.Y - d.cursorCoord.Y
 
 	tc := d.viewPortToTermCoord(coord)
@@ -412,7 +437,7 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 
 	lineStart, lineEnd := d.buf.GetLine(offset)
 	if lineStart == -1 {
-		if d.boarderBottom > 0 {
+		if d.borderBottom > 0 {
 			d.vt100.Write([]byte("~~~~"))
 		}
 		return
@@ -421,20 +446,40 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	lineBuf := make([]byte, lineEnd-lineStart+1)
 	i, _ := d.buf.ReadAt(lineBuf, int64(lineStart))
 	lineBuf = lineBuf[:i]
+	lineBuf = bytes.TrimRight(lineBuf, "\r\n")
 
-	for i := 0; i < d.boarderLeft; i++ {
-		d.vt100.Write([]byte("~"))
+	leftBorder := []byte("~")
+	rightBorder := []byte("~")
+
+	if len(lineBuf) >= d.viewPortWidth()-1 {
+		cursorLineStart, _ := d.buf.GetLine(0)
+		bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
+		posInLine := bufPos - int64(cursorLineStart)
+
+		startVisible := int(posInLine) - d.cursorCoord.X
+		if startVisible > 0 {
+			leftBorder = []byte("<")
+		}
+
+		lineBuf = lineBuf[startVisible:]
+		if len(lineBuf) > d.viewPortWidth()-1 {
+			lineBuf = lineBuf[:d.viewPortWidth()-1]
+			rightBorder = []byte(">")
+		}
 	}
 
-	lineBuf = bytes.TrimRight(lineBuf, "\r\n")
+	for i := 0; i < d.borderLeft; i++ {
+		d.vt100.Write(leftBorder)
+	}
+
 	d.vt100.Write(lineBuf)
 
-	if d.boarderRight > 0 {
-		if len(lineBuf) < d.termSize.Col+d.boarderLeft+d.boarderRight {
-			for i := d.boarderLeft + len(lineBuf); i < d.termSize.Col-1; i++ {
+	if d.borderRight > 0 {
+		if len(lineBuf) < d.termSize.Col+d.borderLeft+d.borderRight {
+			for i := d.borderLeft + len(lineBuf); i < d.termSize.Col-1; i++ {
 				d.vt100.Write([]byte(" "))
 			}
-			d.vt100.Write([]byte("~"))
+			d.vt100.Write(rightBorder)
 		}
 	}
 }
