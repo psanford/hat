@@ -19,7 +19,7 @@ func TestEditorBasic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ed, in := newTestEditor(ctx, term)
+	ed, in := newTestEditor(terminal.Terminal(term))
 
 	go ed.run(ctx)
 
@@ -92,7 +92,7 @@ func TestEditorBackspaceAcrossLines(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ed, in := newTestEditor(ctx, term)
+	ed, in := newTestEditor(terminal.Terminal(term))
 
 	go ed.run(ctx)
 
@@ -200,7 +200,7 @@ func TestPartialTerminal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ed, in := newTestEditor(ctx, term)
+	ed, in := newTestEditor(terminal.Terminal(term))
 
 	go ed.run(ctx)
 
@@ -271,7 +271,7 @@ func (t *ioTracker) WriteControl(s string) (int, error) {
 	return n, err
 }
 
-func newTestEditor(ctx context.Context, term terminal.Terminal) (*editor, *ioTracker) {
+func newTestEditor(term terminal.Terminal) (*editor, *ioTracker) {
 	inPipe, in := io.Pipe()
 	ed := newEditor(inPipe, io.Discard, io.Discard, term)
 

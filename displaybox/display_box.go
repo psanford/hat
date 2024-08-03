@@ -214,6 +214,7 @@ func (d *DisplayBox) InsertNewline() {
 		d.firstRowT--
 
 		d.cursorCoord.X = 0
+		d.cursorCoord.Y++
 
 		d.Redraw()
 	} else {
@@ -279,6 +280,7 @@ func (d *DisplayBox) Redraw() {
 		row := d.firstRowT
 		d.vt100.MoveTo(row, 1)
 		for i := 0; i < d.boarderTop; i++ {
+			d.vt100.ClearToEndOfLine()
 			d.vt100.Write([]byte("~~~~"))
 			row++
 			d.vt100.MoveTo(row, 1)

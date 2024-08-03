@@ -741,6 +741,129 @@ func TestBackspaceEndOfBuffer(t *testing.T) {
 	}
 }
 
+func TestPartialTermScrollUp(t *testing.T) {
+	width := 11
+	height := 6
+	otherAppRows := 2
+
+	dNoBorder, termNoBorder := setupMockPartialTerm(width, height, otherAppRows, false)
+	dBorder, termBorder := setupMockPartialTerm(width, height+2, otherAppRows, true)
+
+	testCases := []struct {
+		name       string
+		action     func(d *DisplayBox)
+		expect     []string
+		withBorder []string
+	}{
+		{
+			name: "Insert abc",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("a"))
+				d.InsertNewline()
+				d.Insert([]byte("b"))
+				d.InsertNewline()
+				d.Insert([]byte("c"))
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"a          ",
+				"b          ",
+				"c          ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~b        ~",
+				"~c        ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "move up, insert newline",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.InsertNewline()
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"a          ",
+				"b          ",
+				"           ",
+				"c          ",
+			},
+			withBorder: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~b        ~",
+				"~         ~",
+				"~c        ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "insert newline",
+			action: func(d *DisplayBox) {
+				d.InsertNewline()
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"a          ",
+				"b          ",
+				"           ",
+				"           ",
+				"c          ",
+			},
+			withBorder: []string{
+				"=OTHER 0=  ",
+				"~~~~       ",
+				"~a        ~",
+				"~b        ~",
+				"~         ~",
+				"~         ~",
+				"~c        ~",
+				"~~~~       ",
+			},
+		},
+	}
+
+	for _, border := range []bool{false, true} {
+		for _, tc := range testCases {
+			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
+				db := dNoBorder
+				term := termNoBorder
+				expect := tc.expect
+
+				if border {
+					db = dBorder
+					term = termBorder
+					expect = tc.withBorder
+				}
+
+				tc.action(db)
+
+				buf := new(bytes.Buffer)
+				for _, line := range expect {
+					buf.Write([]byte(line))
+					buf.Write([]byte(resetSeq))
+					buf.Write([]byte("\n"))
+				}
+
+				buf.Truncate(buf.Len() - 1)
+
+				checkResult(t, term, buf)
+			})
+		}
+	}
+}
+
 func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {
 	t.Helper()
 	var screenBuf bytes.Buffer
@@ -760,6 +883,20 @@ func setupMock(width, height int, showBorder bool) (*DisplayBox, *mock.MockTerm)
 	term := mock.NewMock(width, height)
 	vt := vt100.New(term)
 	gb := gapbuffer.New(2)
+
+	d := New(vt, gb, showBorder)
+	return d, term
+}
+
+func setupMockPartialTerm(width, height, inuseRows int, showBorder bool) (*DisplayBox, *mock.MockTerm) {
+	term := mock.NewMock(width, height)
+	vt := vt100.New(term)
+	gb := gapbuffer.New(2)
+
+	for i := 0; i < inuseRows; i++ {
+		vt.Write([]byte(fmt.Sprintf("=OTHER %d=", i)))
+		vt.MoveTo(i+2, 1)
+	}
 
 	d := New(vt, gb, showBorder)
 	return d, term
