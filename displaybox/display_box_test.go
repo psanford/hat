@@ -814,7 +814,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 				d.InsertNewline()
 			},
 			expect: []string{
-				"=OTHER 0=  ",
+				"=OTHER 1=  ",
 				"a          ",
 				"b          ",
 				"           ",
@@ -822,7 +822,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 				"c          ",
 			},
 			withBorder: []string{
-				"=OTHER 0=  ",
+				"=OTHER 1=  ",
 				"~~~~       ",
 				"~a        ~",
 				"~b        ~",

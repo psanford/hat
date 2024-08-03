@@ -76,6 +76,10 @@ func (t *VT100) ClearToEndOfLine() {
 	t.term.Write([]byte(vt100ClearToEndOfLine))
 }
 
+func (t *VT100) ScrollUp() {
+	t.term.Write([]byte(vtPanDown))
+}
+
 const (
 	// vt100ClearAfterCursor  = "\x1b[0J"
 	// vt100ClearBeforeCursor = "\x1b[1J"
@@ -94,6 +98,8 @@ const (
 
 	vt100SaveCursorPosition    = "\x1b7"
 	vt100RestoreCursorPosition = "\x1b8"
+
+	vtPanDown = "\x1b[S" // scroll up
 
 	// ctrlA = 0x01
 	// ctrlB = 0x02

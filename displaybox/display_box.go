@@ -208,7 +208,7 @@ func (d *DisplayBox) InsertNewline() {
 	} else if haveSpaceAbove {
 		// we can trigger a scroll to grow upwards
 
-		d.vt100.Write([]byte("\r\n")) // trigger a line scroll
+		d.vt100.ScrollUp()
 		d.editableRows++
 		d.termOwnedRows++
 		d.firstRowT--
@@ -227,6 +227,8 @@ func (d *DisplayBox) InsertNewline() {
 func (d *DisplayBox) Insert(b []byte) {
 	d.cursorPosSanityCheck()
 	d.buf.Insert(b)
+	// PMS: this is not correct for unicode characters
+	// we probably should also checke that b is printable
 	d.cursorCoord.X += len(b)
 
 	d.redrawLine()
