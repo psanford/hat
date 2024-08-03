@@ -836,6 +836,149 @@ func TestStartAtBottom(t *testing.T) {
 	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
+func TestOverflowTopBottom(t *testing.T) {
+	width := 11
+	height := 6
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height+2, true)
+
+	testCases := []TestCase{
+		{
+			name: "Fill screen",
+			action: func(d *DisplayBox) {
+				for i := 0; i < height; i++ {
+					d.Insert([]byte(fmt.Sprintf("%d", i)))
+					if i < height-1 {
+						d.InsertNewline()
+					}
+				}
+			},
+			expect: []string{
+				"0          ",
+				"1          ",
+				"2          ",
+				"3          ",
+				"4          ",
+				"5          ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~0        ~",
+				"~1        ~",
+				"~2        ~",
+				"~3        ~",
+				"~4        ~",
+				"~5        ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "New line",
+			action: func(d *DisplayBox) {
+				d.InsertNewline()
+			},
+			expect: []string{
+				"1          ",
+				"2          ",
+				"3          ",
+				"4          ",
+				"5          ",
+				"           ",
+			},
+			withBorder: []string{
+				"▲▲▲▲       ",
+				"~1        ~",
+				"~2        ~",
+				"~3        ~",
+				"~4        ~",
+				"~5        ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Move to copt of current viewport",
+			action: func(d *DisplayBox) {
+				for i := 0; i < height-1; i++ {
+					d.MvUp()
+				}
+			},
+			expect: []string{
+				"1          ",
+				"2          ",
+				"3          ",
+				"4          ",
+				"5          ",
+				"           ",
+			},
+			withBorder: []string{
+				"▲▲▲▲       ",
+				"~1        ~",
+				"~2        ~",
+				"~3        ~",
+				"~4        ~",
+				"~5        ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Trigger Scroll up",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.MvUp() // nop
+			},
+			expect: []string{
+				"0          ",
+				"1          ",
+				"2          ",
+				"3          ",
+				"4          ",
+				"5          ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~0        ~",
+				"~1        ~",
+				"~2        ~",
+				"~3        ~",
+				"~4        ~",
+				"~5        ~",
+				"▼▼▼▼       ",
+			},
+		},
+		{
+			name: "Move back down to bottom",
+			action: func(d *DisplayBox) {
+				for i := 0; i < height; i++ {
+					d.MvDown()
+				}
+			},
+			expect: []string{
+				"1          ",
+				"2          ",
+				"3          ",
+				"4          ",
+				"5          ",
+				"           ",
+			},
+			withBorder: []string{
+				"▲▲▲▲       ",
+				"~1        ~",
+				"~2        ~",
+				"~3        ~",
+				"~4        ~",
+				"~5        ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+	}
+
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
 func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, termNoBorder, termBorder *mock.MockTerm) {
 	t.Helper()
 

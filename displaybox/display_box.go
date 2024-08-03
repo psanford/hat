@@ -130,9 +130,13 @@ func (d *DisplayBox) MvUp() {
 
 	d.buf.Seek(int64(prevStart+offsetCurLine), io.SeekStart)
 
-	d.cursorCoord.Y--
 	d.cursorCoord.X = offsetCurLine
-	d.redrawCursor()
+	if d.cursorCoord.Y > 0 {
+		d.cursorCoord.Y--
+		d.redrawCursor()
+	} else {
+		d.Redraw()
+	}
 }
 
 func (d *DisplayBox) MvDown() {
@@ -160,9 +164,13 @@ func (d *DisplayBox) MvDown() {
 		panic(fmt.Sprintf("MvDown unexpected seek error: %s", err))
 	}
 
-	d.cursorCoord.Y++
 	d.cursorCoord.X = offsetCurLine
-	d.redrawCursor()
+	if d.cursorCoord.Y < d.editableRows-1 {
+		d.cursorCoord.Y++
+		d.redrawCursor()
+	} else {
+		d.Redraw()
+	}
 }
 
 func (d *DisplayBox) MvBOL() {
@@ -241,9 +249,8 @@ func (d *DisplayBox) InsertNewline() {
 
 		d.Redraw()
 	} else {
-		// we are at max displaybox
-		// we need to internally scroll
-		panic("internal scroll not implemented yet")
+		d.cursorCoord.X = 0
+		d.Redraw()
 	}
 }
 
@@ -302,11 +309,19 @@ func (d *DisplayBox) Backspace() {
 func (d *DisplayBox) Redraw() {
 
 	if d.boarderTop > 0 {
+		var borderTop = []byte("~~~~")
+
+		startPos, _ := d.buf.GetLine((-1 * d.cursorCoord.Y) - 1)
+		if startPos != -1 {
+			// there's more rows above the top of the terminal, indicate that
+			borderTop = []byte("▲▲▲▲")
+		}
+
 		row := d.firstRowT
 		d.vt100.MoveTo(row, 1)
 		for i := 0; i < d.boarderTop; i++ {
 			d.vt100.ClearToEndOfLine()
-			d.vt100.Write([]byte("~~~~"))
+			d.vt100.Write(borderTop)
 			row++
 			d.vt100.MoveTo(row, 1)
 		}
@@ -318,11 +333,23 @@ func (d *DisplayBox) Redraw() {
 	}
 
 	if d.boarderBottom > 0 {
+		var borderBottom = []byte("~~~~")
+
+		editableRowsForward := d.editableRows - d.cursorCoord.Y
+
+		if editableRowsForward > 0 {
+			startPos, _ := d.buf.GetLine(editableRowsForward)
+			if startPos != -1 {
+				// there's more rows above below terminal, indicate that
+				borderBottom = []byte("▼▼▼▼")
+			}
+		}
+
 		row := d.firstRowT + d.editableRows + 1
 		d.vt100.MoveTo(row, 1)
 
 		for i := 0; i < d.boarderBottom; i++ {
-			d.vt100.Write([]byte("~~~~"))
+			d.vt100.Write(borderBottom)
 			row++
 			if i < d.boarderBottom-1 {
 				d.vt100.MoveTo(row, 1)
