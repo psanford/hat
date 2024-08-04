@@ -69,6 +69,7 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 		pos := d.vt100.CursorPos()
 		d.vt100.MoveTo(pos.Row-1, 2)
 	}
+
 	return d
 }
 
@@ -333,12 +334,12 @@ func (d *DisplayBox) Backspace() {
 func (d *DisplayBox) Redraw() {
 
 	if d.borderTop > 0 {
-		var borderTop = []byte("~~~~")
+		var borderTop = defaultBorderTop
 
 		startPos, _ := d.buf.GetLine((-1 * d.cursorCoord.Y) - 1)
 		if startPos != -1 {
 			// there's more rows above the top of the terminal, indicate that
-			borderTop = []byte("▲▲▲▲")
+			borderTop = overflowBorderTop
 		}
 
 		row := d.firstRowT
@@ -357,7 +358,7 @@ func (d *DisplayBox) Redraw() {
 	}
 
 	if d.borderBottom > 0 {
-		var borderBottom = []byte("~~~~")
+		var borderBottom = defaultBorderBottom
 
 		editableRowsForward := d.editableRows - d.cursorCoord.Y
 
@@ -365,7 +366,7 @@ func (d *DisplayBox) Redraw() {
 			startPos, _ := d.buf.GetLine(editableRowsForward)
 			if startPos != -1 {
 				// there's more rows above below terminal, indicate that
-				borderBottom = []byte("▼▼▼▼")
+				borderBottom = overflowBorderBottom
 			}
 		}
 
@@ -427,6 +428,18 @@ func (d *DisplayBox) redrawLine() {
 	d.redrawCursor()
 }
 
+var (
+	defaultBorderTop    = []byte("~~~~")
+	defaultBorderBottom = []byte("~~~~")
+	defaultBorderLeft   = []byte("~")
+	defaultBorderRight  = []byte("~")
+
+	overflowBorderTop    = []byte("▲▲▲▲")
+	overflowBorderBottom = []byte("▼▼▼▼")
+	overflowBorderLeft   = []byte("◀")
+	overflowBorderRight  = []byte("▶")
+)
+
 func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	offset := coord.Y - d.cursorCoord.Y
 
@@ -438,7 +451,7 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	lineStart, lineEnd := d.buf.GetLine(offset)
 	if lineStart == -1 {
 		if d.borderBottom > 0 {
-			d.vt100.Write([]byte("~~~~"))
+			d.vt100.Write(defaultBorderBottom)
 		}
 		return
 	}
@@ -448,8 +461,8 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	lineBuf = lineBuf[:i]
 	lineBuf = bytes.TrimRight(lineBuf, "\r\n")
 
-	leftBorder := []byte("~")
-	rightBorder := []byte("~")
+	leftBorder := defaultBorderLeft
+	rightBorder := defaultBorderRight
 
 	if len(lineBuf) >= d.viewPortWidth()-1 {
 		cursorLineStart, _ := d.buf.GetLine(0)
@@ -458,13 +471,13 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 
 		startVisible := int(posInLine) - d.cursorCoord.X
 		if startVisible > 0 {
-			leftBorder = []byte("<")
+			leftBorder = overflowBorderLeft
 		}
 
 		lineBuf = lineBuf[startVisible:]
 		if len(lineBuf) > d.viewPortWidth()-1 {
 			lineBuf = lineBuf[:d.viewPortWidth()-1]
-			rightBorder = []byte(">")
+			rightBorder = overflowBorderRight
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/psanford/hat/gapbuffer"
@@ -16,6 +17,16 @@ type TestCase struct {
 	action     func(d *DisplayBox)
 	expect     []string
 	withBorder []string
+}
+
+func TestMain(m *testing.M) {
+	overflowBorderTop = []byte("^^^^")
+	overflowBorderBottom = []byte("@@@@")
+	overflowBorderLeft = []byte("<")
+	overflowBorderRight = []byte(">")
+
+	code := m.Run()
+	os.Exit(code)
 }
 
 func TestDisplayBox(t *testing.T) {
@@ -335,34 +346,7 @@ func TestMoveUp(t *testing.T) {
 		},
 	}
 
-	for _, border := range []bool{false, true} {
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
-				db := dNoBorder
-				term := termNoBorder
-				expect := tc.expect
-
-				if border {
-					db = dBorder
-					term = termBorder
-					expect = tc.withBorder
-				}
-
-				tc.action(db)
-
-				buf := new(bytes.Buffer)
-				for _, line := range expect {
-					buf.Write([]byte(line))
-					buf.Write([]byte(resetSeq))
-					buf.Write([]byte("\n"))
-				}
-
-				buf.Truncate(buf.Len() - 1)
-
-				checkResult(t, term, buf)
-			})
-		}
-	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
 func TestBolEol(t *testing.T) {
@@ -449,34 +433,7 @@ func TestBolEol(t *testing.T) {
 		},
 	}
 
-	for _, border := range []bool{false, true} {
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("%s border=%t", tc.name, border), func(t *testing.T) {
-				db := dNoBorder
-				term := termNoBorder
-				expect := tc.expect
-
-				if border {
-					db = dBorder
-					term = termBorder
-					expect = tc.withBorder
-				}
-
-				tc.action(db)
-
-				buf := new(bytes.Buffer)
-				for _, line := range expect {
-					buf.Write([]byte(line))
-					buf.Write([]byte(resetSeq))
-					buf.Write([]byte("\n"))
-				}
-
-				buf.Truncate(buf.Len() - 1)
-
-				checkResult(t, term, buf)
-			})
-		}
-	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
 func TestBackspaceAcrossLines(t *testing.T) {
@@ -887,7 +844,7 @@ func TestOverflowTopBottom(t *testing.T) {
 				"           ",
 			},
 			withBorder: []string{
-				"▲▲▲▲       ",
+				"^^^^       ",
 				"~1        ~",
 				"~2        ~",
 				"~3        ~",
@@ -913,7 +870,7 @@ func TestOverflowTopBottom(t *testing.T) {
 				"           ",
 			},
 			withBorder: []string{
-				"▲▲▲▲       ",
+				"^^^^       ",
 				"~1        ~",
 				"~2        ~",
 				"~3        ~",
@@ -945,7 +902,7 @@ func TestOverflowTopBottom(t *testing.T) {
 				"~3        ~",
 				"~4        ~",
 				"~5        ~",
-				"▼▼▼▼       ",
+				"@@@@       ",
 			},
 		},
 		{
@@ -964,7 +921,7 @@ func TestOverflowTopBottom(t *testing.T) {
 				"           ",
 			},
 			withBorder: []string{
-				"▲▲▲▲       ",
+				"^^^^       ",
 				"~1        ~",
 				"~2        ~",
 				"~3        ~",
