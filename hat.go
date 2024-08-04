@@ -7,7 +7,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/psanford/hat/ansiparser"
 	"github.com/psanford/hat/displaybox"
@@ -59,7 +61,12 @@ func main() {
 	ed := newEditor(in, srcFile, term)
 
 	ctx := context.Background()
-	ed.run(ctx)
+	save := ed.run(ctx)
+
+	if !save {
+		log.Println("abort")
+		os.Exit(1)
+	}
 
 	ed.buf.Seek(0, io.SeekStart)
 
@@ -113,7 +120,11 @@ func newEditor(in, srcFile *os.File, term terminal.Terminal) *editor {
 	return ed
 }
 
-func (ed *editor) run(ctx context.Context) {
+func (ed *editor) run(parentCtx context.Context) (save bool) {
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+
+	save = true
 	ed.term.EnableRawMode()
 	defer ed.term.Restore()
 
@@ -121,6 +132,14 @@ func (ed *editor) run(ctx context.Context) {
 		debug, _ := os.Create("/tmp/hat.debug.log")
 		ed.debugLog = debug
 	}
+
+	sigTerm := make(chan os.Signal, 1)
+	signal.Notify(sigTerm, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigTerm
+		save = false
+		cancel()
+	}()
 
 	prevTermCols, prevTermRows := ed.term.Size()
 	cursor := ed.vt100.CursorPos()
@@ -172,7 +191,7 @@ func (ed *editor) run(ctx context.Context) {
 		}
 	}
 
-	ed.parser = ansiparser.New(context.Background())
+	ed.parser = ansiparser.New(ctx)
 	if *debugLog {
 		ed.parser.SetLogger(func(s string, i ...interface{}) {
 			fmt.Fprintf(ed.debugLog, s, i...)
@@ -194,7 +213,7 @@ MAIN_LOOP:
 
 		ed.writeDebugTerminalState()
 		ed.debugPrintf("%s\n", ed.disp.DebugInfo())
-		ed.readBytes()
+		ed.readBytes(ctx)
 
 		for {
 			var e ansiparser.Event
@@ -216,7 +235,7 @@ MAIN_LOOP:
 					ed.disp.Backspace()
 				} else if c == '\r' {
 					ed.disp.InsertNewline()
-				} else if c == ctrlC || c == ctrlD {
+				} else if c == ctrlD {
 					break MAIN_LOOP
 				} else if c == ctrlA { // ctrl-a
 					ed.disp.MvBOL()
@@ -258,6 +277,8 @@ MAIN_LOOP:
 			}
 		}
 	}
+
+	return
 }
 
 func (ed *editor) writeDebugTerminalState() {
@@ -315,12 +336,31 @@ func (ed *editor) debugPrintf(format string, args ...any) {
 	}
 }
 
-func (ed *editor) readBytes() (int, error) {
+func (ed *editor) readBytes(ctx context.Context) (int, error) {
 	if ed.err != nil {
 		return 0, ed.err
 	}
-	b := make([]byte, 128)
-	n, err := ed.in.Read(b)
+
+	var (
+		n   int
+		err error
+
+		b = make([]byte, 128)
+	)
+
+	readDone := make(chan struct{})
+
+	go func() {
+		n, err = ed.in.Read(b)
+		close(readDone)
+	}()
+
+	select {
+	case <-readDone:
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+
 	if err != nil {
 		ed.err = err
 	}
