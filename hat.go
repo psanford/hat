@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 
@@ -13,19 +14,68 @@ import (
 	"github.com/psanford/hat/gapbuffer"
 	"github.com/psanford/hat/terminal"
 	"github.com/psanford/hat/vt100"
+	"golang.org/x/sys/unix"
 )
 
 var border = flag.Bool("border", false, "show border")
+var debugLog = flag.Bool("debug", false, "write debug logs")
 
 func main() {
 	flag.Parse()
 
-	term := terminal.NewTerm(int(os.Stdin.Fd()))
+	out := os.Stdout
+	in := os.Stdin
 
-	ed := newEditor(os.Stdin, os.Stdout, os.Stderr, term)
+	var srcFile *os.File
+
+	args := flag.Args()
+	if len(args) > 1 {
+		log.Fatalf("Can only accept 1 file right now")
+	}
+
+	if len(args) == 1 {
+		inF, err := os.Open(args[0])
+		if err == nil {
+			srcFile = inF
+			defer in.Close()
+		} else if !os.IsNotExist(err) {
+			log.Fatal(err)
+		}
+		out = nil
+	}
+
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0777)
+	if err != nil {
+		// we don't have a terminal, behave like cat
+		_, err := io.Copy(out, in)
+		if err != nil && err != io.EOF {
+			panic(err)
+		}
+		return
+	}
+
+	term := terminal.NewTerm(int(tty.Fd()))
+
+	ed := newEditor(in, srcFile, term)
 
 	ctx := context.Background()
 	ed.run(ctx)
+
+	ed.buf.Seek(0, io.SeekStart)
+
+	if len(args) == 1 {
+		out, err = os.Create(args[0])
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if isTerminal(int(out.Fd())) {
+		// stdout is a terminal, don't re-echo the output
+		return
+	}
+
+	io.Copy(out, ed.buf)
 }
 
 type editor struct {
@@ -34,35 +84,30 @@ type editor struct {
 	buf   *gapbuffer.GapBuffer
 	disp  *displaybox.DisplayBox
 
-	// line the command executable is on
-	// e.g. $ hat
-	// 1 indexed
-	// promptLine     int
-	// editorRowCount int
-
 	parser *ansiparser.Parser
 
 	debugLog io.Writer
 
 	testEventProcessedCh chan struct{}
 
-	in io.Reader
+	in      *os.File
+	srcFile *os.File
 	// out *os.File or io.Writer
 	// err io.Writer
 
 	err error
 }
 
-func newEditor(in io.Reader, out io.Writer, err io.Writer, term terminal.Terminal) *editor {
-
+func newEditor(in, srcFile *os.File, term terminal.Terminal) *editor {
 	vt := vt100.New(term)
 	gb := gapbuffer.New(2)
 
 	ed := &editor{
-		in:    in,
-		term:  term,
-		vt100: vt,
-		buf:   gb,
+		in:      in,
+		srcFile: srcFile,
+		term:    term,
+		vt100:   vt,
+		buf:     gb,
 	}
 
 	return ed
@@ -72,26 +117,75 @@ func (ed *editor) run(ctx context.Context) {
 	ed.term.EnableRawMode()
 	defer ed.term.Restore()
 
-	debug, _ := os.Create("/tmp/hat.debug.log")
-	ed.debugLog = debug
-	// ed.buf.Debug = debug
+	if *debugLog {
+		debug, _ := os.Create("/tmp/hat.debug.log")
+		ed.debugLog = debug
+	}
+
+	prevTermCols, prevTermRows := ed.term.Size()
+	cursor := ed.vt100.CursorPos()
+	if cursor.Col != 1 {
+		// There's some existing content on the line we are currently on,
+		// move to the next line.
+		// Git does this, for example.
+		ed.vt100.Write([]byte("\r\n"))
+	}
 
 	ed.disp = displaybox.New(ed.vt100, ed.buf, *border)
 
-	prevTermCols, prevTermRows := ed.term.Size()
+	defer func() {
+		// mv cursor to bottom of our controlled area so we don't mess up
+		// the terminal
+		tc := ed.disp.LastOwnedRow()
+		ed.vt100.MoveToCoord(tc)
+	}()
+
+	// if !isTerminal(int(ed.in.Fd())) {
+	// 	buf := make([]byte, 128)
+	// 	for {
+	// 		n, err := ed.in.Read(buf)
+	// 		if n > 0 {
+	// 			text := buf[:n]
+	// 			ed.disp.Insert(text)
+	// 		}
+	// 		if err == io.EOF {
+	// 			break
+	// 		} else if err != nil {
+	// 			log.Fatal(err)
+	// 		}
+	// 	}
+	// }
+
+	if ed.srcFile != nil {
+		buf := make([]byte, 128)
+		for {
+			n, err := ed.srcFile.Read(buf)
+			if n > 0 {
+				text := buf[:n]
+				ed.disp.Insert(text)
+			}
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
 
 	ed.parser = ansiparser.New(context.Background())
-	ed.parser.SetLogger(func(s string, i ...interface{}) {
-		fmt.Fprintf(ed.debugLog, s, i...)
-		fmt.Fprintln(ed.debugLog)
-	})
+	if *debugLog {
+		ed.parser.SetLogger(func(s string, i ...interface{}) {
+			fmt.Fprintf(ed.debugLog, s, i...)
+			fmt.Fprintln(ed.debugLog)
+		})
+	}
 	events := ed.parser.EventChan()
 
 MAIN_LOOP:
 	for {
 		termCols, termRows := ed.term.Size()
 		if prevTermCols != termCols || prevTermRows != termRows {
-			fmt.Fprintf(debug, "terminal resize! oldterm:<%d, %d> newterm:<%d, %d>\n", prevTermCols, prevTermRows, termCols, termRows)
+			ed.debugPrintf("terminal resize! oldterm:<%d, %d> newterm:<%d, %d>\n", prevTermCols, prevTermRows, termCols, termRows)
 			// XXXXXX
 			// handle terminal resize here
 
@@ -99,18 +193,18 @@ MAIN_LOOP:
 		}
 
 		ed.writeDebugTerminalState()
-		fmt.Fprintln(debug, ed.disp.DebugInfo())
+		ed.debugPrintf("%s\n", ed.disp.DebugInfo())
 		ed.readBytes()
 
 		for {
 			var e ansiparser.Event
 			select {
 			case e = <-events:
-				fmt.Fprintf(debug, "event: %T %v\n", e, e)
+				ed.debugPrintf("event: %T %v\n", e, e)
 			case <-ctx.Done():
 				return
 			default:
-				fmt.Fprintf(debug, "\nCONTINUE MAIN_LOOP\n")
+				ed.debugPrintf("\nCONTINUE MAIN_LOOP\n")
 
 				continue MAIN_LOOP
 			}
@@ -132,7 +226,7 @@ MAIN_LOOP:
 					// redraw the section of the terminal we own
 					ed.disp.Redraw()
 				} else {
-					fmt.Fprintf(debug, "loop: is plain char <%c>\n", c)
+					ed.debugPrintf("loop: is plain char <%c>\n", c)
 
 					ed.disp.Insert([]byte{c})
 				}
@@ -150,11 +244,13 @@ MAIN_LOOP:
 					ed.disp.MvLeft()
 				}
 			default:
-				fmt.Fprintf(debug, "unhandled event: %T %v\n", e, e)
+				ed.debugPrintf("unhandled event: %T %v\n", e, e)
 			}
 
-			info := ed.buf.DebugInfo()
-			os.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
+			if *debugLog {
+				info := ed.buf.DebugInfo()
+				os.WriteFile("/tmp/hat.current.buffer", info.Bytes(), 0600)
+			}
 
 			select {
 			case ed.testEventProcessedCh <- struct{}{}:
@@ -162,20 +258,12 @@ MAIN_LOOP:
 			}
 		}
 	}
-
-	f, err := os.Create("/tmp/hat.out")
-	if err != nil {
-		panic(err)
-	}
-	ed.buf.Seek(0, io.SeekStart)
-	_, err = io.Copy(f, ed.buf)
-	if err != nil {
-		panic(err)
-	}
-	f.Close()
 }
 
 func (ed *editor) writeDebugTerminalState() {
+	if ed.debugLog == nil {
+		return
+	}
 	termCols, termRows := ed.term.Size()
 	coord := ed.vt100.CursorPos()
 
@@ -221,27 +309,10 @@ func (ed *editor) writeDebugTerminalState() {
 	}
 }
 
-func (ed *editor) cursorPos() (row, col int) {
-	coord := ed.vt100.CursorPos()
-	return coord.Row, coord.Col
-}
-
-func (ed *editor) readChar() (byte, error) {
-	if ed.err != nil {
-		return 0, ed.err
+func (ed *editor) debugPrintf(format string, args ...any) {
+	if ed.debugLog != nil {
+		fmt.Fprintf(ed.debugLog, format, args...)
 	}
-	b := make([]byte, 1)
-	_, err := ed.in.Read(b)
-	if err != nil {
-		ed.err = err
-	}
-
-	_, err = ed.parser.Write(b)
-	if err != nil {
-		panic(err)
-	}
-
-	return b[0], err
 }
 
 func (ed *editor) readBytes() (int, error) {
@@ -275,6 +346,7 @@ func ctrlKey(c byte) byte {
 	return c & 0x1f
 }
 
-func bail(err error) {
-	panic(err)
+func isTerminal(fd int) bool {
+	_, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
+	return err == nil
 }
