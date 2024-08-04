@@ -220,6 +220,15 @@ func (d *DisplayBox) MvEOL() {
 	d.redrawLine()
 }
 
+// Returns the last owned row in terminal coordinate space
+func (d *DisplayBox) LastOwnedRow() vt100.TermCoord {
+	lastLine := d.firstRowT + d.termOwnedRows
+
+	return vt100.TermCoord{
+		Row: lastLine,
+	}
+}
+
 func (d *DisplayBox) redrawCursor() {
 	tc := d.viewPortToTermCoord(d.cursorCoord)
 	d.vt100.MoveToCoord(tc)
@@ -275,18 +284,24 @@ func (d *DisplayBox) InsertNewline() {
 	}
 }
 
-func (d *DisplayBox) Insert(b []byte) {
+func (d *DisplayBox) Insert(p []byte) {
 	// PMS: this is not correct for unicode characters
-	// we probably should also checke that b is printable
+	// we probably should also check that b is printable
 
 	d.cursorPosSanityCheck()
-	d.buf.Insert(b)
 
-	if d.cursorCoord.X < d.viewPortWidth()-1 {
-		d.cursorCoord.X += len(b)
+	for _, b := range p {
+		if b == '\n' {
+			d.InsertNewline()
+		} else {
+			d.buf.Insert([]byte{b})
+			if d.cursorCoord.X < d.viewPortWidth()-1 {
+				d.cursorCoord.X++
+			}
+
+			d.redrawLine()
+		}
 	}
-
-	d.redrawLine()
 }
 
 // Delete character under cursor

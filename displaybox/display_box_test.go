@@ -360,9 +360,7 @@ func TestBolEol(t *testing.T) {
 		{
 			name: "Insert abcd",
 			action: func(d *DisplayBox) {
-				d.Insert([]byte("abcd"))
-				d.InsertNewline()
-				d.Insert([]byte("1234"))
+				d.Insert([]byte("abcd\n1234"))
 			},
 			expect: []string{
 				"abcd       ",
@@ -1078,6 +1076,64 @@ func TestOverflowRight(t *testing.T) {
 				"~ab         ~",
 				"~c!defghijk >",
 				"~~~~         ",
+			},
+		},
+	}
+
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
+func TestLastOwnedRow(t *testing.T) {
+	width := 11
+	height := 5
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []TestCase{
+		{
+			name: "Insert lines",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("a\nb\nc\nd\n"))
+				d.MvUp()
+				d.MvUp()
+			},
+			expect: []string{
+				"a          ",
+				"b          ",
+				"c          ",
+				"d          ",
+				"           ",
+			},
+			withBorder: []string{
+				"^^^^       ",
+				"~c        ~",
+				"~d        ~",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "mvLastOwnedLine",
+			action: func(d *DisplayBox) {
+				tc := d.LastOwnedRow()
+				if tc.Row != height+1 {
+					panic(fmt.Sprintf("expected row == height+1 but was r=%d h=%d", tc.Row, height))
+				}
+			},
+			expect: []string{
+				"a          ",
+				"b          ",
+				"c          ",
+				"d          ",
+				"           ",
+			},
+			withBorder: []string{
+				"^^^^       ",
+				"~c        ~",
+				"~d        ~",
+				"~         ~",
+				"~~~~       ",
 			},
 		},
 	}
