@@ -1141,6 +1141,86 @@ func TestLastOwnedRow(t *testing.T) {
 	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
+func TestEOLAtEndOfFile(t *testing.T) {
+	// If the file ends with \n\n and you are on the first
+	// newline, make sure MvRight and EOL work proplery.
+	width := 11
+	height := 5
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []TestCase{
+		{
+			name: "Check content",
+			action: func(d *DisplayBox) {
+				d.Insert([]byte("a\n"))
+			},
+			expect: []string{
+				"a          ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~a        ~",
+				"~         ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "mv up, eol",
+			action: func(d *DisplayBox) {
+				d.MvUp()
+				d.MvEOL()
+				d.cursorPosSanityCheck()
+			},
+			expect: []string{
+				"a          ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~a        ~",
+				"~         ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "bol, right",
+			action: func(d *DisplayBox) {
+				d.MvBOL()
+				d.MvRight()
+				d.MvRight()
+				d.cursorPosSanityCheck()
+			},
+			expect: []string{
+				"a          ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~a        ~",
+				"~         ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+	}
+
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
 func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, termNoBorder, termBorder *mock.MockTerm) {
 	t.Helper()
 
@@ -1172,7 +1252,6 @@ func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, t
 			})
 		}
 	}
-
 }
 
 func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {

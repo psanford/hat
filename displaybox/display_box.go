@@ -100,12 +100,18 @@ func (d *DisplayBox) MvRight() {
 
 	// if we're at the very end of the file our cursor should be at lastpos+1
 	_, eolPos := d.buf.GetLine(0)
+
 	if eolPos == endBufPos-1 {
-		eolPos = endBufPos
+		lastChar := make([]byte, 1)
+		d.buf.ReadAt(lastChar, int64(endBufPos)-1)
+		if lastChar[0] != '\n' {
+			eolPos = endBufPos
+		}
 	}
 	if bufPos == int64(eolPos) {
 		return
 	}
+
 	_, err := d.buf.Seek(1, io.SeekCurrent)
 	if err != nil {
 		panic(fmt.Sprintf("MvRight seek forward unexepected error: %s", err))
@@ -207,8 +213,18 @@ func (d *DisplayBox) MvEOL() {
 	lineStart, lineEnd := d.buf.GetLine(0)
 	endBufPos := d.buf.Size()
 
+	bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
+
+	if bufPos == int64(lineEnd) {
+		return
+	}
+
 	if lineEnd == endBufPos-1 {
-		lineEnd = endBufPos
+		lastChar := make([]byte, 1)
+		d.buf.ReadAt(lastChar, int64(endBufPos)-1)
+		if lastChar[0] != '\n' {
+			lineEnd = endBufPos
+		}
 	}
 
 	d.buf.Seek(int64(lineEnd), io.SeekStart)
