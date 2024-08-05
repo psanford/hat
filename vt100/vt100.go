@@ -50,7 +50,7 @@ func (t *VT100) CursorPos() TermCoord {
 	var c TermCoord
 	_, err = fmt.Fscanf(buf, "\x1b[%d;%dR", &c.Row, &c.Col)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("err=%s buf=%s", err, buf.Bytes()))
 	}
 
 	return c

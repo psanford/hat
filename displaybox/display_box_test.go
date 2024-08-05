@@ -14,7 +14,7 @@ import (
 
 type TestCase struct {
 	name       string
-	action     func(d *DisplayBox)
+	action     func(d *DisplayBox, term *mock.MockTerm)
 	expect     []string
 	withBorder []string
 }
@@ -39,7 +39,7 @@ func TestDisplayBox(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert 'hi'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("hi"))
 			},
 			expect: []string{
@@ -59,7 +59,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Insert newline and '2'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.InsertNewline()
 				d.Insert([]byte("2"))
 			},
@@ -80,7 +80,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move left and insert '.'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvLeft()
 				d.Insert([]byte("."))
 			},
@@ -101,7 +101,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move left 4 times and insert '@'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvLeft()
 				d.MvLeft()
 				d.MvLeft()
@@ -125,7 +125,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move up and insert '#'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.Insert([]byte("#"))
 			},
@@ -146,7 +146,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move up (nop) and insert '$'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.Insert([]byte("$"))
 			},
@@ -167,7 +167,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move right, down and insert '%'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvRight()
 				d.MvDown()
 				d.Insert([]byte("%"))
@@ -189,7 +189,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move right (nop), down (nop) and insert '^'",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvRight()
 				d.MvDown()
 				d.Insert([]byte("^"))
@@ -211,7 +211,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Backspace",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Backspace()
 			},
 			expect: []string{
@@ -231,7 +231,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Del (nop)",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Del()
 			},
 			expect: []string{
@@ -251,7 +251,7 @@ func TestDisplayBox(t *testing.T) {
 		},
 		{
 			name: "Move Left, Del",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvLeft()
 				d.Del()
 			},
@@ -285,7 +285,7 @@ func TestMoveUp(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert abcd",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("abcd"))
 			},
 			expect: []string{
@@ -305,7 +305,7 @@ func TestMoveUp(t *testing.T) {
 		},
 		{
 			name: "Insert new line",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.InsertNewline()
 			},
 			expect: []string{
@@ -325,7 +325,7 @@ func TestMoveUp(t *testing.T) {
 		},
 		{
 			name: "MvUp, insert 1",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.Insert([]byte("1"))
 			},
@@ -359,7 +359,7 @@ func TestBolEol(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert abcd",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("abcd\n1234"))
 			},
 			expect: []string{
@@ -379,7 +379,7 @@ func TestBolEol(t *testing.T) {
 		},
 		{
 			name: "EOL, insert 5, BOL, insert 6, EOL, insert 7",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvEOL()
 				d.Insert([]byte("5"))
 				d.MvBOL()
@@ -404,7 +404,7 @@ func TestBolEol(t *testing.T) {
 		},
 		{
 			name: "MvUp, insert f, EOL, insert g, BOL, insert h, EOL, insert i",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.Insert([]byte("f"))
 				d.MvEOL()
@@ -444,7 +444,7 @@ func TestBackspaceAcrossLines(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert abc",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("a"))
 				d.InsertNewline()
 				d.Insert([]byte("b"))
@@ -468,7 +468,7 @@ func TestBackspaceAcrossLines(t *testing.T) {
 		},
 		{
 			name: "MvUp, backspace",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.Backspace()
 			},
@@ -489,7 +489,7 @@ func TestBackspaceAcrossLines(t *testing.T) {
 		},
 		{
 			name: "backspace",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Backspace()
 				d.cursorPosSanityCheck()
 			},
@@ -510,7 +510,7 @@ func TestBackspaceAcrossLines(t *testing.T) {
 		},
 		{
 			name: "mvLeft, backspace (noop), mvDown",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvLeft()
 				d.Backspace()
 				d.MvDown()
@@ -545,7 +545,7 @@ func TestBackspaceEndOfBuffer(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert abc",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("a"))
 				d.InsertNewline()
 				d.Insert([]byte("b"))
@@ -572,7 +572,7 @@ func TestBackspaceEndOfBuffer(t *testing.T) {
 		},
 		{
 			name: "backspace",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Backspace()
 			},
 			expect: []string{
@@ -608,7 +608,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert abc",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("a"))
 				d.InsertNewline()
 				d.Insert([]byte("b"))
@@ -636,7 +636,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 		},
 		{
 			name: "move up, insert newline",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.InsertNewline()
 			},
@@ -661,7 +661,7 @@ func TestPartialTermScrollUp(t *testing.T) {
 		},
 		{
 			name: "insert newline",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.InsertNewline()
 			},
 			expect: []string{
@@ -699,7 +699,7 @@ func TestStartAtBottom(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert a",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("a"))
 			},
 			expect: []string{
@@ -721,7 +721,7 @@ func TestStartAtBottom(t *testing.T) {
 		},
 		{
 			name: "Insert newline",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.InsertNewline()
 				d.InsertNewline()
 			},
@@ -744,7 +744,7 @@ func TestStartAtBottom(t *testing.T) {
 		},
 		{
 			name: "backspace",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Backspace()
 			},
 			expect: []string{
@@ -766,7 +766,7 @@ func TestStartAtBottom(t *testing.T) {
 		},
 		{
 			name: "insert newline",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.InsertNewline()
 			},
 			expect: []string{
@@ -801,7 +801,7 @@ func TestOverflowTopBottom(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Fill screen",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				for i := 0; i < height; i++ {
 					d.Insert([]byte(fmt.Sprintf("%d", i)))
 					if i < height-1 {
@@ -830,7 +830,7 @@ func TestOverflowTopBottom(t *testing.T) {
 		},
 		{
 			name: "New line",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.InsertNewline()
 			},
 			expect: []string{
@@ -854,7 +854,7 @@ func TestOverflowTopBottom(t *testing.T) {
 		},
 		{
 			name: "Move to copt of current viewport",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				for i := 0; i < height-1; i++ {
 					d.MvUp()
 				}
@@ -880,7 +880,7 @@ func TestOverflowTopBottom(t *testing.T) {
 		},
 		{
 			name: "Trigger Scroll up",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.MvUp() // nop
 			},
@@ -905,7 +905,7 @@ func TestOverflowTopBottom(t *testing.T) {
 		},
 		{
 			name: "Move back down to bottom",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				for i := 0; i < height; i++ {
 					d.MvDown()
 				}
@@ -944,7 +944,7 @@ func TestOverflowRight(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Fill screen",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				for i := 'a'; i < 'a'+rune(width)+2; i++ {
 					d.Insert([]byte(string([]rune{i})))
 				}
@@ -964,7 +964,7 @@ func TestOverflowRight(t *testing.T) {
 		},
 		{
 			name: "Scroll left by two chars",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				for i := 'a'; i < 'a'+rune(width); i++ {
 					d.MvLeft()
 				}
@@ -984,7 +984,7 @@ func TestOverflowRight(t *testing.T) {
 		},
 		{
 			name: "Mv right (no scroll) and insert",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvRight()
 				d.Insert([]byte("!"))
 			},
@@ -1003,7 +1003,7 @@ func TestOverflowRight(t *testing.T) {
 		},
 		{
 			name: "Scroll left full",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvLeft()
 				d.MvLeft()
 				d.MvLeft()
@@ -1024,7 +1024,7 @@ func TestOverflowRight(t *testing.T) {
 		},
 		{
 			name: "eol",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvEOL()
 			},
 			expect: []string{
@@ -1042,7 +1042,7 @@ func TestOverflowRight(t *testing.T) {
 		},
 		{
 			name: "bol",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvBOL()
 			},
 			expect: []string{
@@ -1060,7 +1060,7 @@ func TestOverflowRight(t *testing.T) {
 		},
 		{
 			name: "right two, newline",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvRight()
 				d.MvRight()
 				d.InsertNewline()
@@ -1093,7 +1093,7 @@ func TestLastOwnedRow(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Insert lines",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("a\nb\nc\nd\n"))
 				d.MvUp()
 				d.MvUp()
@@ -1115,7 +1115,7 @@ func TestLastOwnedRow(t *testing.T) {
 		},
 		{
 			name: "mvLastOwnedLine",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				tc := d.LastOwnedRow()
 				if tc.Row != height+1 {
 					panic(fmt.Sprintf("expected row == height+1 but was r=%d h=%d", tc.Row, height))
@@ -1153,7 +1153,7 @@ func TestEOLAtEndOfFile(t *testing.T) {
 	testCases := []TestCase{
 		{
 			name: "Check content",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.Insert([]byte("a\n"))
 			},
 			expect: []string{
@@ -1173,7 +1173,7 @@ func TestEOLAtEndOfFile(t *testing.T) {
 		},
 		{
 			name: "mv up, eol",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvUp()
 				d.MvEOL()
 				d.cursorPosSanityCheck()
@@ -1195,7 +1195,7 @@ func TestEOLAtEndOfFile(t *testing.T) {
 		},
 		{
 			name: "bol, right",
-			action: func(d *DisplayBox) {
+			action: func(d *DisplayBox, term *mock.MockTerm) {
 				d.MvBOL()
 				d.MvRight()
 				d.MvRight()
@@ -1221,6 +1221,408 @@ func TestEOLAtEndOfFile(t *testing.T) {
 	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
 }
 
+func TestTerminalResize(t *testing.T) {
+	width := 11
+	height := 5
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []TestCase{
+		{
+			name: "Fill screen",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				d.Insert([]byte("abcdefghijklm\n"))
+				d.Insert([]byte("1234567890123\n"))
+				d.Insert([]byte("ABCDEFGHIJKLM\n"))
+				d.Insert([]byte("0987654321098\n"))
+				d.Insert([]byte("nopqrstuvwxyz"))
+			},
+			expect: []string{
+				"abcdefghij ",
+				"1234567890 ",
+				"ABCDEFGHIJ ",
+				"0987654321 ",
+				"qrstuvwxyz ",
+			},
+			withBorder: []string{
+				"^^^^       ",
+				"~ABCDEFGH >",
+				"~09876543 >",
+				"<stuvwxyz ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Grow right 1",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width+1, height)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+				d.Insert([]byte("!"))
+			},
+			expect: []string{
+				"abcdefghijk ",
+				"12345678901 ",
+				"ABCDEFGHIJK ",
+				"09876543210 ",
+				"qrstuvwxyz! ",
+			},
+			withBorder: []string{
+				"^^^^        ",
+				"~ABCDEFGHI >",
+				"~098765432 >",
+				"<stuvwxyz! ~",
+				"~~~~        ",
+			},
+		},
+		{
+			name: "Grow down 1",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width+1, height+1)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+				d.Insert([]byte("@"))
+			},
+			expect: []string{
+				"abcdefghijk ",
+				"12345678901 ",
+				"ABCDEFGHIJK ",
+				"09876543210 ",
+				"rstuvwxyz!@ ",
+				"            ",
+			},
+			withBorder: []string{
+				"^^^^        ",
+				"~ABCDEFGHI >",
+				"~098765432 >",
+				"<tuvwxyz!@ ~",
+				"~~~~        ",
+				"~~~~        ",
+			},
+		},
+		{
+			name: "Shrink left 3",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width-2, height+1)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+				d.Insert([]byte("#"))
+			},
+			expect: []string{
+				"abcdefgh ",
+				"12345678 ",
+				"ABCDEFGH ",
+				"09876543 ",
+				"vwxyz!@# ",
+				"         ",
+			},
+			withBorder: []string{
+				"^^^^     ",
+				"~ABCDEF >",
+				"~098765 >",
+				"<xyz!@# ~",
+				"~~~~     ",
+				"~~~~     ",
+			},
+		},
+		{
+			name: "bol, shrink left 1 more",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				d.MvBOL()
+				term.Resize(width-3, height+1)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+				d.Insert([]byte("$"))
+			},
+			expect: []string{
+				"abcdefg ",
+				"1234567 ",
+				"ABCDEFG ",
+				"0987654 ",
+				"$nopqrs ",
+				"        ",
+			},
+			withBorder: []string{
+				"^^^^    ",
+				"~ABCDE >",
+				"~09876 >",
+				"~$nopq >",
+				"~~~~    ",
+				"~~~~    ",
+			},
+		},
+		{
+			name: "redraw borders",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				for i := 0; i < 4; i++ {
+					d.MvUp()
+				}
+				for i := 0; i < 4; i++ {
+					d.MvDown()
+				}
+				d.cursorPosSanityCheck()
+				d.MvLeft()
+				d.Insert([]byte("%"))
+			},
+			expect: []string{
+				"abcdefg ",
+				"1234567 ",
+				"ABCDEFG ",
+				"0987654 ",
+				"%$nopqr ",
+				"        ",
+			},
+			withBorder: []string{
+				"^^^^    ",
+				"~12345 >",
+				"~ABCDE >",
+				"~09876 >",
+				"~%$nop >",
+				"~~~~    ",
+			},
+		},
+		{
+			name: "shrink bottom",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width-3, height-1)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+				d.MvBOL()
+				d.Insert([]byte("^"))
+			},
+			expect: []string{
+				"ABCDEFG ",
+				"0987654 ",
+				"^%$nopq ",
+				"        ",
+			},
+			withBorder: []string{
+				"^^^^    ",
+				"~09876 >",
+				"~^%$no >",
+				"~~~~    ",
+			},
+		},
+	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
+func TestTerminalRowShrink(t *testing.T) {
+	width := 11
+	height := 10
+	otherAppRows := 5
+
+	dNoBorder, termNoBorder := setupMockPartialTerm(width, height, otherAppRows, false)
+	dBorder, termBorder := setupMockPartialTerm(width, height, otherAppRows, true)
+
+	testCases := []TestCase{
+		{
+			name: "Fill screen",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				d.Insert([]byte("abcdefghijklm\n"))
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"abcdefghij ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+				"           ",
+			},
+		},
+		{
+			name: "Shrink -1",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-1)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"abcdefghij ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Shrink -2",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-2)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"abcdefghij ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Shrink -3",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-3)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			expect: []string{
+				"=OTHER 0=  ",
+				"=OTHER 1=  ",
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"abcdefghij ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Shrink -4",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-4)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			// PMS: This is obviously wrong, but for now the test is documenting the current behavior
+			expect: []string{
+				"=OTHER 2=  ",
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"abcdefghij ",
+				"abcdefghij ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 3=  ",
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Shrink -5",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-5)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			// PMS: This is obviously wrong, but for now the test is documenting the current behavior
+			expect: []string{
+				"=OTHER 4=  ",
+				"abcdefghij ",
+				"abcdefghij ",
+				"abcdefghij ",
+				"           ",
+			},
+			withBorder: []string{
+				"=OTHER 4=  ",
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Shrink -6",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-6)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			// PMS: This is obviously wrong, but for now the test is documenting the current behavior
+			expect: []string{
+				"abcdefghij ",
+				"abcdefghij ",
+				"abcdefghij ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~abcdefgh >",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+		{
+			name: "Shrink -7",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				term.Resize(width, height-7)
+				d.TerminalResize()
+				d.cursorPosSanityCheck()
+			},
+			// PMS: This is obviously wrong, but for now the test is documenting the current behavior
+			expect: []string{
+				"abcdefghij ",
+				"abcdefghij ",
+				"           ",
+			},
+			withBorder: []string{
+				"^^^^       ",
+				"~         ~",
+				"~~~~       ",
+			},
+		},
+	}
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
 func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, termNoBorder, termBorder *mock.MockTerm) {
 	t.Helper()
 
@@ -1237,7 +1639,7 @@ func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, t
 					expect = tc.withBorder
 				}
 
-				tc.action(db)
+				tc.action(db, term)
 
 				buf := new(bytes.Buffer)
 				for _, line := range expect {

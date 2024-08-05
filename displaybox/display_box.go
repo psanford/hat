@@ -363,8 +363,8 @@ func (d *DisplayBox) Backspace() {
 }
 
 func (d *DisplayBox) Redraw() {
-
 	if d.borderTop > 0 {
+		// draw borderTop
 		var borderTop = defaultBorderTop
 
 		startPos, _ := d.buf.GetLine((-1 * d.cursorCoord.Y) - 1)
@@ -389,6 +389,7 @@ func (d *DisplayBox) Redraw() {
 	}
 
 	if d.borderBottom > 0 {
+		// draw borderBottom
 		var borderBottom = defaultBorderBottom
 
 		editableRowsForward := d.editableRows - d.cursorCoord.Y
@@ -405,6 +406,7 @@ func (d *DisplayBox) Redraw() {
 		d.vt100.MoveTo(row, 1)
 
 		for i := 0; i < d.borderBottom; i++ {
+			d.vt100.ClearToEndOfLine()
 			d.vt100.Write(borderBottom)
 			row++
 			if i < d.borderBottom-1 {
@@ -414,6 +416,104 @@ func (d *DisplayBox) Redraw() {
 	}
 
 	d.redrawCursor()
+}
+
+func (d *DisplayBox) TerminalResize() {
+	newSize := d.vt100.Size()
+
+	// Our source of truth for our location is bufPos
+	// d.buf.Seek(0, io.SeekCurrent)
+
+	oldSize := d.termSize
+	d.termSize = newSize
+
+	didShrink := func(oldSize, newSize int) bool {
+		return oldSize > newSize
+	}
+
+	didGrow := func(oldSize, newSize int) bool {
+		return oldSize < newSize
+	}
+
+	if didGrow(oldSize.Row, newSize.Row) {
+		newRows := newSize.Row - oldSize.Row
+		d.termOwnedRows += newRows
+		d.editableRows += newRows
+	} else if didShrink(oldSize.Row, newSize.Row) {
+		// if we have unused space below us, consume that before adjusting anything
+
+		shrinkAmt := oldSize.Row - newSize.Row
+
+		spaceBelow := oldSize.Row - (d.firstRowT + d.termOwnedRows - 1)
+		for spaceBelow > 0 && shrinkAmt > 0 {
+			// there was some unused rows below us, consume them first
+			spaceBelow--
+			shrinkAmt--
+		}
+
+		if shrinkAmt > 0 {
+			for d.firstRowT > 1 && shrinkAmt > 0 {
+				// there's some space above us, take it
+				d.vt100.ScrollUp()
+				d.firstRowT--
+				shrinkAmt--
+			}
+
+			if shrinkAmt > 0 {
+
+				d.termOwnedRows -= shrinkAmt
+				if d.termOwnedRows < 1+d.borderTop+d.borderBottom {
+					stealAmt := 1 + d.borderTop + d.borderBottom - d.termOwnedRows
+					d.firstRowT -= stealAmt
+					if d.firstRowT < 1 {
+						panic(fmt.Sprintf("Terminal too small: shrinkAmt=%d firstRow=%d", shrinkAmt, d.firstRowT))
+					}
+				}
+				d.editableRows -= shrinkAmt
+				if d.editableRows < 1 {
+
+					for d.firstRowT != 1 {
+						d.firstRowT--
+						d.editableRows++
+						if d.editableRows > 1 {
+							break
+						}
+					}
+					if d.editableRows < 1 {
+						panic(fmt.Sprintf("Terminal too small: shrinkAmt=%d editableRows=%d", shrinkAmt, d.editableRows))
+					}
+				}
+
+				d.cursorCoord.Y -= shrinkAmt
+				if d.cursorCoord.Y < 0 {
+					d.cursorCoord.Y = 0
+				}
+			}
+		}
+
+	}
+
+	if didShrink(oldSize.Col, newSize.Col) {
+		shrinkAmt := oldSize.Col - newSize.Col
+
+		// our cursor is now out of bounds
+		if d.cursorCoord.X >= d.viewPortWidth() {
+			d.cursorCoord.X = d.cursorCoord.X - shrinkAmt
+			if d.cursorCoord.X < 0 {
+				d.cursorCoord.X = 0
+			}
+		}
+
+	}
+
+	d.Redraw()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 type viewPortCoord struct {
@@ -472,14 +572,14 @@ var (
 )
 
 func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
-	offset := coord.Y - d.cursorCoord.Y
+	bufOffset := coord.Y - d.cursorCoord.Y
 
 	tc := d.viewPortToTermCoord(coord)
 
 	d.vt100.MoveTo(tc.Row, 1)
 	d.vt100.ClearToEndOfLine()
 
-	lineStart, lineEnd := d.buf.GetLine(offset)
+	lineStart, lineEnd := d.buf.GetLine(bufOffset)
 	if lineStart == -1 {
 		if d.borderBottom > 0 {
 			d.vt100.Write(defaultBorderBottom)
@@ -496,13 +596,21 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	rightBorder := defaultBorderRight
 
 	if len(lineBuf) >= d.viewPortWidth()-1 {
-		cursorLineStart, _ := d.buf.GetLine(0)
-		bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
-		posInLine := bufPos - int64(cursorLineStart)
+		// our line is longer than the viewport
 
-		startVisible := int(posInLine) - d.cursorCoord.X
-		if startVisible > 0 {
-			leftBorder = overflowBorderLeft
+		var startVisible int
+		if bufOffset == 0 {
+			// If we are redrawing the line our cursor is on,
+			// figure out the amount we need to scroll.
+			// If we are on a different line we don't scroll
+			cursorLineStart, _ := d.buf.GetLine(0)
+			bufPos, _ := d.buf.Seek(0, io.SeekCurrent)
+			posInLine := bufPos - int64(cursorLineStart)
+
+			startVisible = int(posInLine) - d.cursorCoord.X
+			if startVisible > 0 {
+				leftBorder = overflowBorderLeft
+			}
 		}
 
 		lineBuf = lineBuf[startVisible:]

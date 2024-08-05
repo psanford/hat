@@ -89,3 +89,7 @@ func (t *MockTerm) Size() (cols, rows int) {
 func (t *MockTerm) Render(w io.Writer) error {
 	return t.term.Render(w)
 }
+
+func (t *MockTerm) Resize(cols, rows int) {
+	t.term.Resize(rows, cols)
+}
