@@ -18,7 +18,6 @@ import (
 	"github.com/psanford/hat/gapbuffer"
 	"github.com/psanford/hat/terminal"
 	"github.com/psanford/hat/vt100"
-	"golang.org/x/sys/unix"
 )
 
 var border = flag.Bool("border", false, "show border")
@@ -83,7 +82,7 @@ func main() {
 		}
 	}
 
-	if isTerminal(int(out.Fd())) {
+	if terminal.IsTerminal(int(out.Fd())) {
 		// stdout is a terminal, don't re-echo the output
 		return
 	}
@@ -408,9 +407,4 @@ const (
 
 func ctrlKey(c byte) byte {
 	return c & 0x1f
-}
-
-func isTerminal(fd int) bool {
-	_, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
-	return err == nil
 }

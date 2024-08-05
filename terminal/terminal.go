@@ -76,3 +76,8 @@ func (t *Term) Size() (cols, rows int) {
 	}
 	return int(ws.Col), int(ws.Row)
 }
+
+func IsTerminal(fd int) bool {
+	_, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
+	return err == nil
+}
