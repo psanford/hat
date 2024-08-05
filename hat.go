@@ -104,10 +104,6 @@ type editor struct {
 
 	in      *os.File
 	srcFile *os.File
-	// out *os.File or io.Writer
-	// err io.Writer
-
-	err error
 }
 
 func newEditor(in, srcFile *os.File, term terminal.Terminal) *editor {
@@ -221,25 +217,28 @@ MAIN_LOOP:
 		ed.writeDebugTerminalState()
 		ed.debugPrintf("%s\n", ed.disp.DebugInfo())
 
-		readErrChan := make(chan error)
+		readResultChan := make(chan readResult)
 		go func() {
-			_, err := ed.readBytes()
-			if errors.Is(err, os.ErrDeadlineExceeded) {
+			result := ed.readBytes()
+			if errors.Is(result.err, os.ErrDeadlineExceeded) {
 				ed.debugPrintf("read input canceled\n")
 			}
-			readErrChan <- err
+			readResultChan <- result
 		}()
 
 		select {
-		case err := <-readErrChan:
-			if err != nil {
-				log.Printf("read err: %s", err)
+		case result := <-readResultChan:
+			if result.err != nil {
+				if result.err == io.EOF {
+					return
+				}
+				log.Fatalf("read err: %s", result.err)
 				continue MAIN_LOOP
 			}
 		case <-resizeChan:
 			ed.debugPrintf("got resize event\n")
 			ed.in.SetReadDeadline(time.Now().Add(-time.Microsecond))
-			<-readErrChan
+			<-readResultChan
 			ed.in.SetReadDeadline(time.Time{})
 			ed.disp.TerminalResize()
 			continue
@@ -367,33 +366,52 @@ func (ed *editor) debugPrintf(format string, args ...any) {
 	}
 }
 
-func (ed *editor) readBytes() (int, error) {
-	if ed.err != nil {
-		return 0, ed.err
-	}
+func (ed *editor) readBytes() readResult {
+	var result readResult
 
 	var (
-		n   int
-		err error
+		n     int
+		err   error
+		total int
 
-		b = make([]byte, 128)
+		b        = make([]byte, 128)
+		readMore = true
 	)
 
-	n, err = ed.in.Read(b)
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return 0, err
+	for readMore {
+		n, err = ed.in.Read(b[total:])
+
+		if n > 0 {
+			total += n
+		}
+		if len(b[total:]) == n {
+			newBuf := make([]byte, len(b)*2)
+			copy(newBuf, b)
+			b = newBuf
+		} else {
+			readMore = false
+		}
+
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			break
+		}
+
+		if err != nil {
+			result.err = err
+			break
+		}
 	}
 
-	if err != nil {
-		ed.err = err
-	}
+	if total > 0 {
+		_, err = ed.parser.Write(b[:total])
+		if err != nil {
+			result.err = err
+		}
 
-	_, err = ed.parser.Write(b[:n])
-	if err != nil {
-		ed.err = err
 	}
+	result.n = total
 
-	return n, err
+	return result
 }
 
 const (
@@ -407,4 +425,9 @@ const (
 
 func ctrlKey(c byte) byte {
 	return c & 0x1f
+}
+
+type readResult struct {
+	n   int
+	err error
 }
