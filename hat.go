@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/psanford/hat/ansiparser"
 	"github.com/psanford/hat/displaybox"
@@ -26,7 +28,11 @@ func main() {
 	flag.Parse()
 
 	out := os.Stdout
-	in := os.Stdin
+
+	if err := syscall.SetNonblock(0, true); err != nil {
+		panic(err)
+	}
+	in := os.NewFile(0, "stdin")
 
 	var srcFile *os.File
 
@@ -133,15 +139,25 @@ func (ed *editor) run(parentCtx context.Context) (save bool) {
 		ed.debugLog = debug
 	}
 
-	sigTerm := make(chan os.Signal, 1)
-	signal.Notify(sigTerm, syscall.SIGTERM, syscall.SIGINT)
+	sigChan := make(chan os.Signal, 1)
+	resizeChan := make(chan struct{}, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGWINCH)
 	go func() {
-		<-sigTerm
-		save = false
-		cancel()
+		for sig := range sigChan {
+			switch sig {
+			case syscall.SIGTERM, syscall.SIGINT:
+				save = false
+				cancel()
+				return
+			case syscall.SIGWINCH:
+				select {
+				case resizeChan <- struct{}{}:
+				default:
+				}
+			}
+		}
 	}()
 
-	prevTermCols, prevTermRows := ed.term.Size()
 	cursor := ed.vt100.CursorPos()
 	if cursor.Col != 1 {
 		// There's some existing content on the line we are currently on,
@@ -198,22 +214,39 @@ func (ed *editor) run(parentCtx context.Context) (save bool) {
 			fmt.Fprintln(ed.debugLog)
 		})
 	}
+
 	events := ed.parser.EventChan()
 
 MAIN_LOOP:
 	for {
-		termCols, termRows := ed.term.Size()
-		if prevTermCols != termCols || prevTermRows != termRows {
-			ed.debugPrintf("terminal resize! oldterm:<%d, %d> newterm:<%d, %d>\n", prevTermCols, prevTermRows, termCols, termRows)
-			// XXXXXX
-			// handle terminal resize here
-
-			prevTermCols, prevTermRows = termCols, termRows
-		}
-
 		ed.writeDebugTerminalState()
 		ed.debugPrintf("%s\n", ed.disp.DebugInfo())
-		ed.readBytes(ctx)
+
+		readErrChan := make(chan error)
+		go func() {
+			_, err := ed.readBytes()
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				ed.debugPrintf("read input canceled\n")
+			}
+			readErrChan <- err
+		}()
+
+		select {
+		case err := <-readErrChan:
+			if err != nil {
+				log.Printf("read err: %s", err)
+				continue MAIN_LOOP
+			}
+		case <-resizeChan:
+			ed.debugPrintf("got resize event\n")
+			ed.in.SetReadDeadline(time.Now().Add(-time.Microsecond))
+			<-readErrChan
+			ed.in.SetReadDeadline(time.Time{})
+			ed.disp.TerminalResize()
+			continue
+		case <-ctx.Done():
+			return
+		}
 
 		for {
 			var e ansiparser.Event
@@ -224,7 +257,6 @@ MAIN_LOOP:
 				return
 			default:
 				ed.debugPrintf("\nCONTINUE MAIN_LOOP\n")
-
 				continue MAIN_LOOP
 			}
 
@@ -336,7 +368,7 @@ func (ed *editor) debugPrintf(format string, args ...any) {
 	}
 }
 
-func (ed *editor) readBytes(ctx context.Context) (int, error) {
+func (ed *editor) readBytes() (int, error) {
 	if ed.err != nil {
 		return 0, ed.err
 	}
@@ -348,17 +380,9 @@ func (ed *editor) readBytes(ctx context.Context) (int, error) {
 		b = make([]byte, 128)
 	)
 
-	readDone := make(chan struct{})
-
-	go func() {
-		n, err = ed.in.Read(b)
-		close(readDone)
-	}()
-
-	select {
-	case <-readDone:
-	case <-ctx.Done():
-		return 0, ctx.Err()
+	n, err = ed.in.Read(b)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return 0, err
 	}
 
 	if err != nil {
