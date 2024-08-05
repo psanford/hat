@@ -25,6 +25,8 @@ func TestMain(m *testing.M) {
 	overflowBorderLeft = []byte("<")
 	overflowBorderRight = []byte(">")
 
+	perfomCursorSanityCheck = true
+
 	code := m.Run()
 	os.Exit(code)
 }

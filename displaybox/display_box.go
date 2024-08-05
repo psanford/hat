@@ -57,17 +57,18 @@ func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox
 			}
 		}
 
+		row := cursorT.Row
 		d.vt100.Write([]byte("~~~~"))
 		d.vt100.Write([]byte("\r\n"))
 		d.vt100.Write([]byte("~"))
+		row++
 		for i := 2; i < d.termSize.Col; i++ {
 			d.vt100.Write([]byte(" "))
 		}
 		d.vt100.Write([]byte("~"))
 		d.vt100.Write([]byte("\r\n"))
 		d.vt100.Write([]byte("~~~~"))
-		pos := d.vt100.CursorPos()
-		d.vt100.MoveTo(pos.Row-1, 2)
+		d.vt100.MoveTo(d.firstRowT+1, 2)
 	}
 
 	return d
@@ -520,7 +521,12 @@ type viewPortCoord struct {
 	X, Y int
 }
 
+var perfomCursorSanityCheck bool
+
 func (d *DisplayBox) cursorPosSanityCheck() {
+	if !perfomCursorSanityCheck {
+		return
+	}
 
 	startLine, endLine := d.buf.GetLine(0)
 	bufOffset, _ := d.buf.Seek(0, io.SeekCurrent)
