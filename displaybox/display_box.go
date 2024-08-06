@@ -237,6 +237,20 @@ func (d *DisplayBox) MvEOL() {
 	d.redrawLine()
 }
 
+func (d *DisplayBox) MvPgUp() {
+	d.cursorPosSanityCheck()
+	for i := 0; i < d.termOwnedRows; i++ {
+		d.MvUp()
+	}
+}
+
+func (d *DisplayBox) MvPgDown() {
+	d.cursorPosSanityCheck()
+	for i := 0; i < d.termOwnedRows; i++ {
+		d.MvDown()
+	}
+}
+
 // Returns the last owned row in terminal coordinate space
 func (d *DisplayBox) LastOwnedRow() vt100.TermCoord {
 	lastLine := d.firstRowT + d.termOwnedRows

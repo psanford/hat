@@ -292,6 +292,10 @@ MAIN_LOOP:
 				case ansiparser.Backward:
 					ed.disp.MvLeft()
 				}
+			case ansiparser.PageUp:
+				ed.disp.MvPgUp()
+			case ansiparser.PageDown:
+				ed.disp.MvPgDown()
 			default:
 				ed.debugPrintf("unhandled event: %T %v\n", e, e)
 			}

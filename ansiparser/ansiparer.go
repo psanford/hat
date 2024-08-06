@@ -373,9 +373,24 @@ func (h *eventHandler) SD(n int) error {
 	return h.sendEvent(e)
 }
 
-// Device Attributes
-func (h *eventHandler) DA([]string) error {
-	panic("DEVICE_ATTRIBUTES")
+type PageUp struct {
+}
+
+type PageDown struct {
+}
+
+// This is supposed to be Device Attributes, but we are
+// abusing it for passing out other states from the parser
+func (h *eventHandler) DA(args []string) error {
+	if len(args) == 3 && args[0] == "CSI" && args[1] == "~" {
+		switch args[2] {
+		case "5":
+			return h.sendEvent(PageUp{})
+		case "6":
+			return h.sendEvent(PageDown{})
+		}
+	}
+
 	return nil
 }
 
