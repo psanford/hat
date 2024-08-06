@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"unicode/utf8"
 
 	"github.com/psanford/hat/gapbuffer"
 	"github.com/psanford/hat/vt100"
@@ -321,18 +322,21 @@ func (d *DisplayBox) Insert(p []byte) {
 
 	d.cursorPosSanityCheck()
 
-	for _, b := range p {
-		if b == '\n' {
+	for len(p) > 0 {
+		r, size := utf8.DecodeRune(p)
+		p = p[size:]
+		if r == '\n' {
+			d.redrawLine()
 			d.InsertNewline()
 		} else {
-			d.buf.Insert([]byte{b})
+			d.buf.Insert([]byte(string(r)))
 			if d.cursorCoord.X < d.viewPortWidth()-1 {
 				d.cursorCoord.X++
 			}
 
-			d.redrawLine()
 		}
 	}
+	d.redrawLine()
 }
 
 // Delete character under cursor
@@ -547,9 +551,20 @@ func (d *DisplayBox) cursorPosSanityCheck() {
 
 	lineSize := endLine - startLine
 
-	lineOffset := int(bufOffset) - startLine
-	if lineOffset != d.cursorCoord.X && lineSize < d.viewPortWidth()-1 {
-		panic(fmt.Sprintf("cursor pos out of sync with buf: cursorX=%d buf=%d", d.cursorCoord.X, lineOffset))
+	lineOffsetBytes := int(bufOffset) - startLine
+
+	lineBytes := make([]byte, lineOffsetBytes)
+	d.buf.ReadAt(lineBytes, int64(startLine))
+
+	var runeCount int
+	for len(lineBytes) > 0 {
+		_, size := utf8.DecodeRune(lineBytes)
+		lineBytes = lineBytes[size:]
+		runeCount++
+	}
+
+	if runeCount != d.cursorCoord.X && lineSize < d.viewPortWidth()-1 {
+		panic(fmt.Sprintf("cursor pos out of sync with buf: cursorX=%d buf=%d", d.cursorCoord.X, runeCount))
 	}
 
 	calced := d.viewPortToTermCoord(d.cursorCoord)
@@ -591,6 +606,17 @@ var (
 	overflowBorderRight  = []byte("▶")
 )
 
+func bytesToRunes(b []byte) []rune {
+	out := make([]rune, 0, len(b))
+	for len(b) > 0 {
+		r, size := utf8.DecodeRune(b)
+		b = b[size:]
+		out = append(out, r)
+	}
+
+	return out
+}
+
 func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	bufOffset := coord.Y - d.cursorCoord.Y
 
@@ -612,10 +638,12 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 	lineBuf = lineBuf[:i]
 	lineBuf = bytes.TrimRight(lineBuf, "\r\n")
 
+	lineRunes := bytesToRunes(lineBuf)
+
 	leftBorder := defaultBorderLeft
 	rightBorder := defaultBorderRight
 
-	if len(lineBuf) >= d.viewPortWidth()-1 {
+	if len(lineRunes) >= d.viewPortWidth()-1 {
 		// our line is longer than the viewport
 
 		var startVisible int
@@ -633,9 +661,9 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 			}
 		}
 
-		lineBuf = lineBuf[startVisible:]
-		if len(lineBuf) > d.viewPortWidth()-1 {
-			lineBuf = lineBuf[:d.viewPortWidth()-1]
+		lineRunes = lineRunes[startVisible:]
+		if len(lineRunes) > d.viewPortWidth()-1 {
+			lineRunes = lineRunes[:d.viewPortWidth()-1]
 			rightBorder = overflowBorderRight
 		}
 	}
@@ -644,11 +672,11 @@ func (d *DisplayBox) redrawLineX(coord *viewPortCoord) {
 		d.vt100.Write(leftBorder)
 	}
 
-	d.vt100.Write(lineBuf)
+	d.vt100.Write([]byte(string(lineRunes)))
 
 	if d.borderRight > 0 {
-		if len(lineBuf) < d.termSize.Col+d.borderLeft+d.borderRight {
-			for i := d.borderLeft + len(lineBuf); i < d.termSize.Col-1; i++ {
+		if len(lineRunes) < d.termSize.Col+d.borderLeft+d.borderRight {
+			for i := d.borderLeft + len(lineRunes); i < d.termSize.Col-1; i++ {
 				d.vt100.Write([]byte(" "))
 			}
 			d.vt100.Write(rightBorder)

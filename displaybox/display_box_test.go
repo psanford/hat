@@ -1658,6 +1658,39 @@ func checkResults(t *testing.T, tc []TestCase, dNoBorder, dBorder *DisplayBox, t
 	}
 }
 
+func TestUnicode(t *testing.T) {
+	width := 11
+	height := 5
+
+	dNoBorder, termNoBorder := setupMock(width, height, false)
+	dBorder, termBorder := setupMock(width, height, true)
+
+	testCases := []TestCase{
+		{
+			name: "Insert ab☃cd",
+			action: func(d *DisplayBox, term *mock.MockTerm) {
+				d.Insert([]byte("ab☃cd"))
+			},
+			expect: []string{
+				"ab☃cd      ",
+				"           ",
+				"           ",
+				"           ",
+				"           ",
+			},
+			withBorder: []string{
+				"~~~~       ",
+				"~ab☃cd    ~",
+				"~~~~       ",
+				"           ",
+				"           ",
+			},
+		},
+	}
+
+	checkResults(t, testCases, dNoBorder, dBorder, termNoBorder, termBorder)
+}
+
 func checkResult(t *testing.T, term *mock.MockTerm, expect *bytes.Buffer) {
 	t.Helper()
 	var screenBuf bytes.Buffer
