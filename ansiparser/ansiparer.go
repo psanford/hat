@@ -3,7 +3,7 @@ package ansiparser
 import (
 	"context"
 
-	"github.com/psanford/go-ansiterm"
+	"github.com/psanford/ansiterm"
 )
 
 func New(ctx context.Context) *Parser {
