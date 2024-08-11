@@ -12,8 +12,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
-	"github.com/psanford/hat/ansiparser"
+	"github.com/psanford/ansiterm"
+	"github.com/psanford/hat/ansiraw"
 	"github.com/psanford/hat/displaybox"
 	"github.com/psanford/hat/gapbuffer"
 	"github.com/psanford/hat/terminal"
@@ -96,7 +98,7 @@ type editor struct {
 	buf   *gapbuffer.GapBuffer
 	disp  *displaybox.DisplayBox
 
-	parser *ansiparser.Parser
+	parser *ansiterm.AnsiParser
 
 	debugLog io.Writer
 
@@ -202,15 +204,18 @@ func (ed *editor) run(parentCtx context.Context) (save bool) {
 		}
 	}
 
-	ed.parser = ansiparser.New(ctx)
+	eventChan := make(chan ansiterm.AnsiEvent, 10)
+	var opts []ansiterm.Option
+
 	if *debugLog {
-		ed.parser.SetLogger(func(s string, i ...interface{}) {
+		opt := ansiterm.WithLogf(func(s string, i ...interface{}) {
 			fmt.Fprintf(ed.debugLog, s, i...)
 			fmt.Fprintln(ed.debugLog)
 		})
+		opts = append(opts, opt)
 	}
 
-	events := ed.parser.EventChan()
+	ed.parser = ansiterm.CreateParser(eventChan, opts...)
 
 MAIN_LOOP:
 	for {
@@ -247,9 +252,9 @@ MAIN_LOOP:
 		}
 
 		for {
-			var e ansiparser.Event
+			var e ansiterm.AnsiEvent
 			select {
-			case e = <-events:
+			case e = <-eventChan:
 				ed.debugPrintf("event: %T %v\n", e, e)
 			case <-ctx.Done():
 				return
@@ -259,45 +264,88 @@ MAIN_LOOP:
 			}
 
 			switch ee := e.(type) {
-			case ansiparser.Character:
-				c := ee.Char
-				if c == 0x7F { // ASCII DEL (backspace)
-					ed.disp.Backspace()
-				} else if c == '\r' {
-					ed.disp.InsertNewline()
-				} else if c == ctrlD {
-					break MAIN_LOOP
-				} else if c == ctrlA { // ctrl-a
-					ed.disp.MvBOL()
-				} else if c == ctrlE { // ctrl-e
-					ed.disp.MvEOL()
-				} else if c == ctrlL {
-					// redraw the section of the terminal we own
-					ed.disp.Redraw()
-				} else {
-					ed.debugPrintf("loop: is plain char <%c>\n", c)
+			case *ansiterm.Print:
+				ed.debugPrintf("loop: is plain char <%s>\n", ee.B)
 
-					ed.disp.Insert([]byte{c})
+				p := ee.B
+				for len(p) > 0 {
+					r, size := utf8.DecodeRune(p)
+					p = p[size:]
+					if r == 0x7F {
+						ed.disp.Backspace()
+					} else {
+						ed.disp.Insert([]byte(string(r)))
+					}
 				}
-			case ansiparser.DeleteCharater:
-				ed.disp.Del()
-			case ansiparser.CursorMovement:
-				switch ee.Direction {
-				case ansiparser.Up:
+			case *ansiterm.Execute:
+				for _, c := range ee.B {
+					if c == 0x7F { // ASCII DEL (backspace)
+						ed.disp.Backspace()
+					} else if c == '\r' {
+						ed.disp.InsertNewline()
+					} else if c == ctrlD {
+						break MAIN_LOOP
+					} else if c == ctrlA { // ctrl-a
+						ed.disp.MvBOL()
+					} else if c == ctrlE { // ctrl-e
+						ed.disp.MvEOL()
+					} else if c == ctrlL {
+						// redraw the section of the terminal we own
+						ed.disp.Redraw()
+					} else {
+						ed.debugPrintf("unsupported control char<%c>\n", c)
+					}
+				}
+			case *ansiterm.CursorUp:
+				for i := 0; i < ee.N; i++ {
 					ed.disp.MvUp()
-				case ansiparser.Down:
+				}
+			case *ansiterm.CursorDown:
+				for i := 0; i < ee.N; i++ {
 					ed.disp.MvDown()
-				case ansiparser.Forward:
+				}
+			case *ansiterm.CursorForward:
+				for i := 0; i < ee.N; i++ {
 					ed.disp.MvRight()
-				case ansiparser.Backward:
+				}
+			case *ansiterm.CursorBackward:
+				for i := 0; i < ee.N; i++ {
 					ed.disp.MvLeft()
 				}
-			case ansiparser.PageUp:
-				ed.disp.MvPgUp()
-			case ansiparser.PageDown:
-				ed.disp.MvPgDown()
+			case *ansiterm.DeleteCharacter:
+				for i := 0; i < ee.N; i++ {
+					ed.disp.Del()
+				}
+			// case *CursorNextLine:
+			// case *CursorPreviousLine:
+			// case *CursorHorizontalAbsolute:
+			// case *VerticalLinePositionAbsolute:
+			// case *CursorPosition:
+			// case *HorizontalVerticalPosition:
+			// case *TextCursorEnableMode:
+			// case *OriginMode:
+			// case *ColumnMode:
+			// case *EraseInDisplay:
+			// case *EraseInLine:
+			// case *InsertLine:
+			// case *DeleteLine:
+			// case *InsertCharacter:
+			// case *SetGraphicsRendition:
+			// case *ScrollUp:
+			// case *ScrollDown:
+			// case *DeviceAttributes:
+			// case *SetTopAndBottomMargins:
+			// case *Index:
+			// case *ReverseIndex:
 			default:
-				ed.debugPrintf("unhandled event: %T %v\n", e, e)
+				switch ansiraw.ParseRaw(e.Raw()) {
+				case ansiraw.PageDown:
+					ed.disp.MvPgDown()
+				case ansiraw.PageUp:
+					ed.disp.MvPgUp()
+				default:
+					ed.debugPrintf("Unhandled event type: %T %+v\n", ee, ee)
+				}
 			}
 
 			if *debugLog {
@@ -407,7 +455,7 @@ func (ed *editor) readBytes() readResult {
 	}
 
 	if total > 0 {
-		_, err = ed.parser.Write(b[:total])
+		_, err = ed.parser.Parse(b[:total])
 		if err != nil {
 			result.err = err
 		}

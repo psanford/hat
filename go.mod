@@ -6,7 +6,7 @@ toolchain go1.22.4
 
 require (
 	github.com/google/go-cmp v0.4.0
-	github.com/psanford/ansiterm v0.0.0-20240810045656-5ec19f586c71
+	github.com/psanford/ansiterm v0.0.0-20240811001212-80b373e92df5
 	github.com/vito/midterm v0.1.5-0.20240307214207-d0271a7ca452
 	golang.org/x/sys v0.7.0
 )
