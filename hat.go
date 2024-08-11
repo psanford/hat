@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -9,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -104,8 +104,9 @@ type editor struct {
 
 	testEventProcessedCh chan struct{}
 
-	in      *os.File
-	srcFile *os.File
+	in       *os.File
+	inReader io.Reader
+	srcFile  *os.File
 }
 
 func newEditor(in, srcFile *os.File, term terminal.Terminal) *editor {
@@ -113,11 +114,12 @@ func newEditor(in, srcFile *os.File, term terminal.Terminal) *editor {
 	gb := gapbuffer.New(2)
 
 	ed := &editor{
-		in:      in,
-		srcFile: srcFile,
-		term:    term,
-		vt100:   vt,
-		buf:     gb,
+		in:       in,
+		inReader: in,
+		srcFile:  srcFile,
+		term:     term,
+		vt100:    vt,
+		buf:      gb,
 	}
 
 	return ed
@@ -155,15 +157,24 @@ func (ed *editor) run(parentCtx context.Context) (save bool) {
 		}
 	}()
 
-	cursor := ed.vt100.CursorPos()
-	if cursor.Col != 1 {
+	cursorT, extraBytes, err := ed.vt100.CursorPos()
+	if err != nil {
+		log.Fatalf("Failed to read cursor position: %s", err)
+	}
+
+	if len(extraBytes) > 0 {
+		extraReader := bytes.NewReader(extraBytes)
+		ed.inReader = io.MultiReader(extraReader, ed.inReader)
+	}
+
+	if cursorT.Col != 1 {
 		// There's some existing content on the line we are currently on,
 		// move to the next line.
 		// Git does this, for example.
 		ed.vt100.Write([]byte("\r\n"))
 	}
 
-	ed.disp = displaybox.New(ed.vt100, ed.buf, *border)
+	ed.disp = displaybox.New(ed.vt100, ed.buf, *border, *cursorT)
 
 	defer func() {
 		// mv cursor to bottom of our controlled area so we don't mess up
@@ -171,22 +182,6 @@ func (ed *editor) run(parentCtx context.Context) (save bool) {
 		tc := ed.disp.LastOwnedRow()
 		ed.vt100.MoveToCoord(tc)
 	}()
-
-	// if !isTerminal(int(ed.in.Fd())) {
-	// 	buf := make([]byte, 128)
-	// 	for {
-	// 		n, err := ed.in.Read(buf)
-	// 		if n > 0 {
-	// 			text := buf[:n]
-	// 			ed.disp.Insert(text)
-	// 		}
-	// 		if err == io.EOF {
-	// 			break
-	// 		} else if err != nil {
-	// 			log.Fatal(err)
-	// 		}
-	// 	}
-	// }
 
 	if ed.srcFile != nil {
 		buf := make([]byte, 128)
@@ -219,7 +214,6 @@ func (ed *editor) run(parentCtx context.Context) (save bool) {
 
 MAIN_LOOP:
 	for {
-		ed.writeDebugTerminalState()
 		ed.debugPrintf("%s\n", ed.disp.DebugInfo())
 
 		readResultChan := make(chan readResult)
@@ -363,55 +357,6 @@ MAIN_LOOP:
 	return
 }
 
-func (ed *editor) writeDebugTerminalState() {
-	if ed.debugLog == nil {
-		return
-	}
-	termCols, termRows := ed.term.Size()
-	coord := ed.vt100.CursorPos()
-
-	f, err := os.Create("/tmp/hat.current.terminal")
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-
-	fmt.Fprintln(f, strings.Repeat("@", termCols))
-	fmt.Fprintf(f, "@@ w:%d h:%d cur_row:%d cur_col:%d @@\n", termCols, termRows, coord.Row, coord.Col)
-
-	for row := 1; row <= termRows; row++ {
-		bufRowOffset := row - coord.Row
-		startLine, endLine := ed.buf.GetLine(bufRowOffset)
-
-		if startLine < 0 && endLine < 0 {
-			fmt.Fprintln(f, strings.Repeat("@", termCols))
-			continue
-		}
-
-		lineText := make([]byte, endLine-startLine+1)
-		ed.buf.ReadAt(lineText, int64(startLine))
-
-		for col := 1; col <= termCols; col++ {
-			if row == coord.Row && col == coord.Col {
-				f.Write([]byte("_"))
-				continue
-			}
-
-			if col <= len(lineText) {
-				b := lineText[col-1]
-				if b == '\n' {
-					f.Write([]byte{'$'})
-				} else {
-					f.Write([]byte{b})
-				}
-			} else {
-				f.Write([]byte{'~'})
-			}
-		}
-		f.Write([]byte{'\n'})
-	}
-}
-
 func (ed *editor) debugPrintf(format string, args ...any) {
 	if ed.debugLog != nil {
 		fmt.Fprintf(ed.debugLog, format, args...)
@@ -431,7 +376,7 @@ func (ed *editor) readBytes() readResult {
 	)
 
 	for readMore {
-		n, err = ed.in.Read(b[total:])
+		n, err = ed.inReader.Read(b[total:])
 
 		if n > 0 {
 			total += n

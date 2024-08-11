@@ -16,7 +16,7 @@ type MockTerm struct {
 
 	stdout *bytes.Buffer
 
-	ctrlBuf bytes.Buffer
+	readBuf *bytes.Buffer
 	ctrlCh  chan []byte
 }
 
@@ -62,9 +62,10 @@ func NewMock(cols, rows int) *MockTerm {
 		cols: cols,
 		rows: rows,
 
-		term:   t,
-		stdout: &stdout,
-		ctrlCh: ctrlCh,
+		term:    t,
+		stdout:  &stdout,
+		readBuf: new(bytes.Buffer),
+		ctrlCh:  ctrlCh,
 	}
 }
 
@@ -78,8 +79,21 @@ func (t *MockTerm) ReadControl() ([]byte, error) {
 	return <-t.ctrlCh, nil
 }
 
+func (t *MockTerm) CursorPos() (col, row int) {
+	return t.term.Cursor.X + 1, t.term.Cursor.Y + 1
+}
+
 func (t *MockTerm) Write(b []byte) (int, error) {
 	return t.term.Write(b)
+}
+
+func (t *MockTerm) UnsafeRead(b []byte) (int, error) {
+	if t.readBuf.Len() > 0 {
+		return t.readBuf.Read(b)
+	}
+	got := <-t.ctrlCh
+	t.readBuf.Write(got)
+	return t.readBuf.Read(b)
 }
 
 func (t *MockTerm) Size() (cols, rows int) {

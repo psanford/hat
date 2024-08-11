@@ -1711,7 +1711,12 @@ func setupMock(width, height int, showBorder bool) (*DisplayBox, *mock.MockTerm)
 	vt := vt100.New(term)
 	gb := gapbuffer.New(2)
 
-	d := New(vt, gb, showBorder)
+	col, row := term.CursorPos()
+	cursorT := vt100.TermCoord{
+		Col: col,
+		Row: row,
+	}
+	d := New(vt, gb, showBorder, cursorT)
 	return d, term
 }
 
@@ -1725,7 +1730,13 @@ func setupMockPartialTerm(width, height, inuseRows int, showBorder bool) (*Displ
 		vt.MoveTo(i+2, 1)
 	}
 
-	d := New(vt, gb, showBorder)
+	col, row := term.CursorPos()
+	cursorT := vt100.TermCoord{
+		Col: col,
+		Row: row,
+	}
+
+	d := New(vt, gb, showBorder, cursorT)
 	return d, term
 }
 

@@ -14,7 +14,7 @@ type Terminal interface {
 	// Size returns the terminal size in number of columns, rows
 	Size() (int, int)
 	Write([]byte) (int, error)
-	ReadControl() ([]byte, error)
+	UnsafeRead([]byte) (int, error)
 }
 
 type Term struct {
@@ -56,11 +56,8 @@ func (t *Term) EnableRawMode() {
 	}
 }
 
-func (t *Term) ReadControl() ([]byte, error) {
-	buf := make([]byte, 16)
-	n, err := t.File.Read(buf)
-	buf = buf[:n]
-	return buf, err
+func (t *Term) UnsafeRead(b []byte) (int, error) {
+	return t.File.Read(b)
 }
 
 func (t *Term) Restore() {

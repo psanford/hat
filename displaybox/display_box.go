@@ -29,9 +29,7 @@ type DisplayBox struct {
 	cursorCoord *viewPortCoord
 }
 
-func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool) *DisplayBox {
-	cursorT := term.CursorPos()
-
+func New(term *vt100.VT100, gb *gapbuffer.GapBuffer, addBorder bool, cursorT vt100.TermCoord) *DisplayBox {
 	d := &DisplayBox{
 		editableRows:  1,
 		termOwnedRows: 1,
@@ -569,8 +567,14 @@ func (d *DisplayBox) cursorPosSanityCheck() {
 
 	calced := d.viewPortToTermCoord(d.cursorCoord)
 
-	actualPos := d.vt100.CursorPos()
-	if actualPos != calced {
+	actualPos, extraBytes, err := d.vt100.CursorPos()
+	if err != nil {
+		panic(err)
+	}
+	if len(extraBytes) > 0 {
+		panic(fmt.Sprintf("Read other data besides CursorPos"))
+	}
+	if *actualPos != calced {
 		panic(fmt.Sprintf("cursor pos out of sync! expected:%+v but was:%+v", calced, actualPos))
 	}
 

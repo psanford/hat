@@ -1,8 +1,11 @@
 package vt100
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"regexp"
+	"strconv"
 
 	"github.com/psanford/hat/terminal"
 )
@@ -37,23 +40,56 @@ type TermCoord struct {
 	Row, Col int
 }
 
-func (t *VT100) CursorPos() TermCoord {
+func (t *VT100) CursorPos() (*TermCoord, []byte, error) {
 	if _, err := t.term.Write([]byte(vt100GetCursorActivePos)); err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 
-	b, err := t.term.ReadControl()
-	if err != nil {
-		panic(err)
-	}
-	buf := bytes.NewBuffer(b)
-	var c TermCoord
-	_, err = fmt.Fscanf(buf, "\x1b[%d;%dR", &c.Row, &c.Col)
-	if err != nil {
-		panic(fmt.Sprintf("err=%s buf=%s", err, buf.Bytes()))
+	r := &readWrapper{
+		term: t.term,
 	}
 
-	return c
+	maxRead := 1 << 24
+	return readUntilCursorPosition(r, maxRead)
+}
+
+type readWrapper struct {
+	term terminal.Terminal
+}
+
+func (r *readWrapper) Read(b []byte) (int, error) {
+	return r.term.UnsafeRead(b)
+}
+
+func readUntilCursorPosition(r io.Reader, maxRead int) (*TermCoord, []byte, error) {
+	var buffer []byte
+	tempBuf := make([]byte, 1)
+	cursorPosRegex := regexp.MustCompile(`\x1b\[(\d+);(\d+)R`)
+
+	var coord TermCoord
+
+	for {
+		if len(tempBuf) > maxRead {
+			return nil, buffer, errors.New("Failed to get CursorPosition before maxRead hit")
+		}
+		n, err := r.Read(tempBuf)
+		if err != nil {
+			if n > 0 {
+				buffer = append(buffer, tempBuf[:n]...)
+			}
+			return nil, buffer, err
+		}
+
+		buffer = append(buffer, tempBuf[0])
+
+		if matches := cursorPosRegex.FindSubmatch(buffer); matches != nil {
+			coord.Row, _ = strconv.Atoi(string(matches[1]))
+			coord.Col, _ = strconv.Atoi(string(matches[2]))
+			extraBytes := buffer[:len(buffer)-len(matches[0])]
+
+			return &coord, extraBytes, nil
+		}
+	}
 }
 
 func (t *VT100) SaveCursorPos() {
